@@ -7,6 +7,8 @@ import { TEST_APP_DATABASE_URL, TEST_SQS_ENDPOINT } from "./env";
 export interface TestApp {
   baseUrl: string;
   close(): Promise<void>;
+  /** Contexto Nest, para testes que chamam serviços direto (ex.: `app.get(ReprocessPendingReferences)`). */
+  app?: INestApplication;
 }
 
 /**
@@ -29,5 +31,6 @@ export async function startTestApp(env: Record<string, string> = {}): Promise<Te
   return {
     baseUrl: await app.getUrl(),
     close: () => app.close(),
+    app,
   };
 }

@@ -10,6 +10,7 @@ export interface AppConfig {
   awsRegion: string;
   queues: { wager: string; wagerDlq: string; events: string };
   roles: Set<AppRole>;
+  pending: { maxAttempts: number; pollMs: number };
   faultInject?: "exit_after_commit";
 }
 
@@ -27,6 +28,8 @@ const envSchema = z.object({
     .transform((s) => s.split(",").map((r) => r.trim()).filter((r) => r.length > 0))
     .pipe(z.array(z.enum(APP_ROLES)).min(1)),
   FAULT_INJECT: z.enum(["exit_after_commit"]).optional(),
+  PENDING_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
+  PENDING_POLL_MS: z.coerce.number().int().positive().default(1000),
 });
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -47,6 +50,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       events: e.WALLET_EVENTS_QUEUE_NAME,
     },
     roles: new Set(e.APP_ROLES),
+    pending: { maxAttempts: e.PENDING_MAX_ATTEMPTS, pollMs: e.PENDING_POLL_MS },
     ...(e.FAULT_INJECT ? { faultInject: e.FAULT_INJECT } : {}),
   };
 }

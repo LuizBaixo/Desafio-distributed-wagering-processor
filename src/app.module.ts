@@ -1,7 +1,7 @@
 import { Module, type DynamicModule } from "@nestjs/common";
 import { APP_FILTER } from "@nestjs/core";
 import { LoggerModule } from "nestjs-pino";
-import type { AppConfig } from "./config/config";
+import { APP_CONFIG, type AppConfig } from "./config/config";
 import { ConfigModule } from "./config/config.module";
 import { createLogger } from "./infrastructure/observability/logger";
 import { PersistenceModule } from "./infrastructure/persistence/persistence.module";
@@ -20,6 +20,9 @@ import { MetricsController } from "./interfaces/http/metrics.controller";
 import { WalletsController } from "./interfaces/http/wallets.controller";
 import { ERROR_LOGGER, HttpErrorFilter } from "./interfaces/http/http-error.filter";
 import { WageringModule } from "./interfaces/http/wagering.module";
+import { WagerEngine } from "./application/wagering/wager-engine";
+import { ReprocessPendingReferences } from "./application/wagering/reprocess-pending-references";
+import { PendingReferenceWorker } from "./interfaces/workers/pending-reference.worker";
 
 @Module({})
 export class AppModule {
@@ -36,6 +39,18 @@ export class AppModule {
       ],
       controllers: [HealthController, MetricsController, WalletsController],
       providers: [
+        {
+          provide: ReprocessPendingReferences,
+          inject: [UNIT_OF_WORK, WagerEngine, CLOCK, ID_GENERATOR, APP_CONFIG],
+          useFactory: (
+            uow: UnitOfWork,
+            engine: WagerEngine,
+            clock: Clock,
+            ids: IdGenerator,
+            config: AppConfig,
+          ) => new ReprocessPendingReferences(uow, engine, clock, ids, { maxAttempts: config.pending.maxAttempts }),
+        },
+        PendingReferenceWorker,
         {
           provide: CreateWallet,
           inject: [UNIT_OF_WORK, CLOCK, ID_GENERATOR],
