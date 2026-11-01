@@ -36,6 +36,7 @@ describe("OpenAPI em /docs", () => {
 
   beforeAll(async () => {
     const config = loadConfig({
+      NODE_ENV: "test",
       DATABASE_URL: TEST_APP_DATABASE_URL,
       SQS_ENDPOINT: TEST_SQS_ENDPOINT,
       AWS_REGION: "us-east-1",

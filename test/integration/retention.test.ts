@@ -34,7 +34,7 @@ afterAll(async () => {
 });
 
 function config(env: Record<string, string> = {}) {
-  return loadConfig({ DATABASE_URL: TEST_APP_DATABASE_URL, SQS_ENDPOINT: TEST_SQS_ENDPOINT, ...env });
+  return loadConfig({ NODE_ENV: "test", DATABASE_URL: TEST_APP_DATABASE_URL, SQS_ENDPOINT: TEST_SQS_ENDPOINT, ...env });
 }
 
 async function pgCode(p: Promise<unknown>): Promise<string | undefined> {

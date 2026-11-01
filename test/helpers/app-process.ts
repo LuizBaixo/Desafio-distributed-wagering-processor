@@ -41,6 +41,7 @@ export async function spawnApp(opts: SpawnAppOptions): Promise<AppProcess> {
       ...process.env,
       PORT: String(opts.port),
       APP_ROLES: opts.roles,
+      NODE_ENV: "test",
       DATABASE_URL: TEST_APP_DATABASE_URL,
       SQS_ENDPOINT: TEST_SQS_ENDPOINT,
       AWS_REGION: "us-east-1",

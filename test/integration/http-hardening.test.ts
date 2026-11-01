@@ -63,7 +63,7 @@ describe("flag DOCS_ENABLED", () => {
   });
 
   test("padrão: ligado fora de production e desligado em production, sem a flag", () => {
-    const base = { DATABASE_URL: "postgres://wagering_app:senha-forte@localhost:5433/wagering", SQS_ENDPOINT: "http://localhost:4567" };
+    const base = { NODE_ENV: "development", DATABASE_URL: "postgres://wagering_app:Xq7vLm4Wz8Rt2pQ9hBn5KcYe@localhost:5433/wagering", SQS_ENDPOINT: "http://localhost:4567" };
     expect(loadConfig({ ...base }).docsEnabled).toBe(true);
     expect(loadConfig({ ...base, NODE_ENV: "production", AUTH_MODE: "disabled" }).docsEnabled).toBe(false);
     expect(loadConfig({ ...base, NODE_ENV: "production", AUTH_MODE: "disabled", DOCS_ENABLED: "true" }).docsEnabled).toBe(true);

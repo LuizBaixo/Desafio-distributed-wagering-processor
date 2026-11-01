@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { loadConfig } from "../../../src/config/config";
 
+// Senha forte de 24 caracteres: a validação de produção exige no mínimo 12.
+const STRONG_PASSWORD = "Xq7vLm4Wz8Rt2pQ9hBn5KcYe";
 const BASE = {
-  DATABASE_URL: "postgres://wagering_app:s3cr3t-Xk29@db.internal:5432/wagering",
+  NODE_ENV: "development",
+  DATABASE_URL: `postgres://wagering_app:${STRONG_PASSWORD}@db.internal:5432/wagering`,
   SQS_ENDPOINT: "http://sqs.internal:4566",
   AWS_ACCESS_KEY_ID: "AKIAEXAMPLE",
 };
@@ -110,10 +113,81 @@ describe("loadConfig: NODE_ENV=production", () => {
 
   test("fora de produção os defaults continuam aceitos", () => {
     const cfg = loadConfig({
+      NODE_ENV: "development",
       DATABASE_URL: "postgres://wagering_app:app@localhost:5432/wagering",
       SQS_ENDPOINT: "http://localhost:4566",
       AWS_ACCESS_KEY_ID: "test",
     });
     expect(cfg.production).toBe(false);
+  });
+});
+
+describe("detecção de produção fail-safe (B-12)", () => {
+  test("NODE_ENV ausente é produção", () => {
+    const { NODE_ENV: _omit, ...noEnv } = BASE;
+    expect(() => loadConfig(noEnv)).toThrow("AUTH_MODE");
+  });
+
+  test.each(["Production", " production ", "PRODUCTION", "prod", "staging", ""])(
+    "NODE_ENV=%p é tratado como produção",
+    (value) => {
+      expect(() => loadConfig({ ...BASE, NODE_ENV: value })).toThrow("AUTH_MODE");
+    },
+  );
+
+  test.each(["development", "test", " Test ", "DEVELOPMENT"])("NODE_ENV=%p não é produção", (value) => {
+    expect(loadConfig({ ...BASE, NODE_ENV: value }).production).toBe(false);
+  });
+
+  test("docsEnabled segue a mesma detecção: 'Production' desliga /docs", () => {
+    const cfg = loadConfig({ ...BASE, NODE_ENV: "Production", AUTH_MODE: "disabled" });
+    expect(cfg.production).toBe(true);
+    expect(cfg.docsEnabled).toBe(false);
+  });
+});
+
+describe("senha do banco em produção (B-11)", () => {
+  const PROD_OIDC = { ...BASE, ...OIDC, NODE_ENV: "production" };
+
+  test.each([
+    ["senha padrão com percent-encoding", "postgres://wagering_app:%61pp@db:5432/w"],
+    ["senha padrão do owner com percent-encoding", "postgres://wagering_owner:%6Fwner@db:5432/w"],
+    ["senha postgres com percent-encoding", "postgres://postgres:%70ostgres@db:5432/w"],
+    ["senha padrão em ?password=", "postgres://wagering_owner@db:5432/w?password=owner"],
+    ["senha padrão com outro usuário", "postgres://admin:postgres@db:5432/w"],
+    ["senha padrão em maiúsculas", "postgres://wagering_app:APP@db:5432/w"],
+    ["senha owner com outro usuário", "postgres://qualquer:owner@db:5432/w"],
+    ["senha curta", "postgres://wagering_app:abc@db:5432/w"],
+    ["senha curta em ?password=", "postgres://wagering_app@db:5432/w?password=abc"],
+  ])("recusa %s", (_label, url) => {
+    expect(() => loadConfig({ ...PROD_OIDC, DATABASE_URL: url })).toThrow("DATABASE_URL");
+  });
+
+  test("senha forte de 24 caracteres passa", () => {
+    expect(loadConfig({ ...PROD_OIDC, DATABASE_URL: `postgres://wagering_app:${STRONG_PASSWORD}@db:5432/w` }).auth.mode).toBe(
+      "oidc",
+    );
+  });
+
+  test("URL sem senha é aceita (autenticação por outro meio)", () => {
+    expect(loadConfig({ ...PROD_OIDC, DATABASE_URL: "postgres://wagering_app@db:5432/w" }).auth.mode).toBe("oidc");
+  });
+});
+
+describe("chaves AWS em produção (B-13)", () => {
+  const PROD_OIDC = { ...BASE, ...OIDC, NODE_ENV: "production" };
+
+  test.each([" test", "TEST", "Test "])("AWS_ACCESS_KEY_ID=%p é recusado", (value) => {
+    expect(() => loadConfig({ ...PROD_OIDC, AWS_ACCESS_KEY_ID: value })).toThrow("AWS_ACCESS_KEY_ID");
+  });
+
+  test("chave de exemplo da AWS é recusada", () => {
+    expect(() => loadConfig({ ...PROD_OIDC, AWS_ACCESS_KEY_ID: "AKIAIOSFODNN7EXAMPLE" })).toThrow("AWS_ACCESS_KEY_ID");
+  });
+
+  test("AWS_SECRET_ACCESS_KEY=test é recusado", () => {
+    expect(() => loadConfig({ ...PROD_OIDC, AWS_ACCESS_KEY_ID: "AKIAREALKEY0001", AWS_SECRET_ACCESS_KEY: " TEST" })).toThrow(
+      "AWS_SECRET_ACCESS_KEY",
+    );
   });
 });

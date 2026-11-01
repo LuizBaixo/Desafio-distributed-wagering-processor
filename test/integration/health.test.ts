@@ -37,6 +37,7 @@ process.env.AWS_SECRET_ACCESS_KEY ??= "test";
 
 async function startApp(databaseUrl: string): Promise<{ app: INestApplication; baseUrl: string }> {
   const config = loadConfig({
+      NODE_ENV: "test",
     DATABASE_URL: databaseUrl,
     SQS_ENDPOINT: TEST_SQS_ENDPOINT,
     AWS_REGION: "us-east-1",
@@ -93,6 +94,7 @@ describe("health e metrics", () => {
 describe("readiness durante o shutdown", () => {
   test("app.close() em andamento: /health/ready 503 SHUTTING_DOWN e /health/live 200 em menos de 200 ms", async () => {
     const config = loadConfig({
+      NODE_ENV: "test",
       DATABASE_URL: TEST_APP_DATABASE_URL,
       SQS_ENDPOINT: TEST_SQS_ENDPOINT,
       AWS_REGION: "us-east-1",

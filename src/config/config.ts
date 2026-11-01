@@ -85,8 +85,47 @@ function isHttps(value: string): boolean {
   }
 }
 
-/** Senhas padrão dos papéis de desenvolvimento (docker-compose, init-roles.sql). */
-const DEFAULT_DB_PASSWORDS = ["postgres:postgres", ":owner@", ":app@"];
+/** Únicos NODE_ENV que não são produção. Qualquer outro valor (inclusive ausente) é produção. */
+const NON_PRODUCTION_NODE_ENVS = ["development", "test"];
+
+/**
+ * Senhas padrão dos papéis de desenvolvimento (docker-compose, init-roles.sql), em minúsculas.
+ * Comparadas depois de decodificar a URL, sem depender do usuário.
+ */
+const DEFAULT_DB_PASSWORDS = ["postgres", "owner", "app", "admin", "password", "test", "changeme"];
+const MIN_DB_PASSWORD_LENGTH = 12;
+/** Chaves de exemplo/desenvolvimento, em minúsculas: 'test' e a chave de exemplo da documentação da AWS. */
+const DEV_AWS_KEYS = ["test", "akiaiosfodnn7example"];
+
+function decodeOrRaw(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Senhas presentes na URL do banco: a da parte userinfo (decodificada) e a do parâmetro `password`.
+ * Sem senha, lista vazia. URL inválida: `null`.
+ */
+function databasePasswords(databaseUrl: string): string[] | null {
+  let url: URL;
+  try {
+    url = new URL(databaseUrl);
+  } catch {
+    return null;
+  }
+  const passwords: string[] = [];
+  if (url.password !== "") passwords.push(decodeOrRaw(url.password));
+  const queryPassword = url.searchParams.get("password");
+  if (queryPassword !== null) passwords.push(queryPassword);
+  return passwords;
+}
+
+function isWeakDbPassword(password: string): boolean {
+  return password.length < MIN_DB_PASSWORD_LENGTH || DEFAULT_DB_PASSWORDS.includes(password.toLowerCase());
+}
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = envSchema.safeParse(env);
@@ -95,7 +134,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`invalid configuration: ${details}`);
   }
   const e = parsed.data;
-  const production = e.NODE_ENV === "production";
+  // Fail-safe (B-12): só development e test (após trim e lowercase) desligam as validações de produção.
+  // NODE_ENV ausente, 'Production', 'prod' ou 'staging' são tratados como produção.
+  const production = !NON_PRODUCTION_NODE_ENVS.includes((e.NODE_ENV ?? "").trim().toLowerCase());
   const problems: string[] = [];
 
   if (e.AUTH_MODE === "oidc") {
@@ -106,10 +147,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (production) {
     if (e.AUTH_MODE === undefined) problems.push("AUTH_MODE: must be set explicitly (disabled or oidc) in production");
     // A mensagem nomeia a variável e nunca repete o valor, que carrega a senha.
-    if (DEFAULT_DB_PASSWORDS.some((p) => e.DATABASE_URL.includes(p))) {
-      problems.push("DATABASE_URL: contains a default password, which is not allowed in production");
+    const passwords = databasePasswords(e.DATABASE_URL);
+    if (passwords === null) {
+      problems.push("DATABASE_URL: not a valid URL");
+    } else if (passwords.some(isWeakDbPassword)) {
+      problems.push(
+        `DATABASE_URL: password is a default or shorter than ${MIN_DB_PASSWORD_LENGTH} characters, not allowed in production`,
+      );
     }
-    if (e.AWS_ACCESS_KEY_ID === "test") problems.push("AWS_ACCESS_KEY_ID: the development value 'test' is not allowed in production");
+    if (DEV_AWS_KEYS.includes((e.AWS_ACCESS_KEY_ID ?? "").trim().toLowerCase())) {
+      problems.push("AWS_ACCESS_KEY_ID: a development or example key is not allowed in production");
+    }
+    if ((env.AWS_SECRET_ACCESS_KEY ?? "").trim().toLowerCase() === "test") {
+      problems.push("AWS_SECRET_ACCESS_KEY: the development value 'test' is not allowed in production");
+    }
     // O IdP é a raiz de confiança da autenticação: em produção só https (A-R2-07).
     for (const name of ["OIDC_ISSUER", "OIDC_JWKS_URL"] as const) {
       const value = e[name];
@@ -135,7 +186,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     production,
     auth,
     port: e.PORT,
-    docsEnabled: e.DOCS_ENABLED !== undefined ? e.DOCS_ENABLED === "true" : env.NODE_ENV !== "production",
+    docsEnabled: e.DOCS_ENABLED !== undefined ? e.DOCS_ENABLED === "true" : !production,
     databaseUrl: e.DATABASE_URL,
     sqsEndpoint: e.SQS_ENDPOINT,
     awsRegion: e.AWS_REGION,
