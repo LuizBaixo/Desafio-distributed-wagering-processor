@@ -1,0 +1,42 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Start test infrastructure
+        run: bun run infra:test:up
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Unit tests
+        run: bun run test:unit
+        env:
+          TEST_DB_NAME: wagering_ci
+
+      - name: Integration tests
+        run: bun run test:integration
+        env:
+          TEST_DB_NAME: wagering_ci
+
+      - name: Concurrency tests
+        run: bun run test:concurrency
+        env:
+          TEST_DB_NAME: wagering_ci
+
+      - name: Stop test infrastructure
+        if: always()
+        run: bun run infra:test:down

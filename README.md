@@ -1,5 +1,7 @@
 # Distributed Wagering Processor
 
+![CI](../../actions/workflows/ci.yml/badge.svg)
+
 Serviço financeiro que processa transações de aposta (`BET`, `WIN`, `LOSS`, `REFUND`, `ROLLBACK`) vindas de provedores, por HTTP e SQS. Correto com mensagens duplicadas, fora de ordem e concorrentes, com várias instâncias.
 
 Decisões de arquitetura, trade-offs e limitações estão em [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -82,6 +84,19 @@ Variáveis que os testes aceitam:
   ```
 
 Com a infra de teste no ar, `bun run test` roda tudo. Para encerrar: `bun run infra:test:down`.
+
+## CI
+
+O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda em `push` e `pull_request`, em `ubuntu-latest`, com limite de 30 minutos. O job `test` instala as dependências com `bun install --frozen-lockfile`, sobe a infra de teste, roda `typecheck`, `test:unit`, `test:integration` e `test:concurrency` com `TEST_DB_NAME=wagering_ci`, e derruba a infra no fim, mesmo se um passo falhar.
+
+Para reproduzir o job localmente, dentro de um container `oven/bun:1.4.4-alpine`:
+
+```bash
+bun run infra:test:up
+bash scripts/ci-local.sh
+```
+
+O script exige que a infra de teste já esteja de pé no host. Ele usa `TEST_DB_NAME` (padrão `wagering_ci`) e `TEST_PORT_BASE` (padrão `4101`) do ambiente e sai com o código de falha.
 
 ## Endpoints
 
