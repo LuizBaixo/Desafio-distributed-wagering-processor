@@ -928,8 +928,8 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
       <p><em>Por quê:</em> LocalStack exige token para subir. <em>Custo:</em> é emulação; pode haver diferenças com a AWS.</p>
     </li>
     <li class="decision" style="--i:4">
-      <h3 class="decision-title">Auth como ponto de extensão</h3>
-      <p><em>Decisão:</em> sem autenticação real, com <code>AuthGuard</code> no-op. <em>Custo:</em> nenhum controle de acesso (README §2).</p>
+      <h3 class="decision-title">Auth via IdP (OIDC), opcional</h3>
+      <p><em>Decisão:</em> JWT validado com <code>jose</code> (RS256/ES256); <code>provider_id</code> precisa bater com a rota; wallets e reconciliação exigem <code>wallet:admin</code>. <em>Custo:</em> precisa de IdP externo em produção; desligado em dev; startup de produção exige <code>AUTH_MODE</code> explícito.</p>
     </li>
     <li class="decision" style="--i:5">
       <h3 class="decision-title">FAILED é terminal</h3>
@@ -949,6 +949,7 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
     <li><a href="../../README.md">README</a></li>
     <li><a href="../../ARCHITECTURE.md">ARCHITECTURE</a></li>
     <li><a href="../load-test.md">docs/load-test.md</a></li>
+    <li><a href="../security-audit/relatorio-auditoria-seguranca.pdf">Relatório de segurança (PDF)</a></li>
   </ul>
 </section>
 
