@@ -322,8 +322,9 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
   font-size: clamp(1rem, 1.5vw, 1.2rem);
 }
 .face.front { border-top: 4px solid var(--accent); }
-.face.back { transform: rotateY(180deg); border-top: 4px solid var(--ok); align-items: flex-start; font-size: clamp(0.92rem, 1.3vw, 1.1rem); }
+.face.back { display: block; transform: rotateY(180deg); border-top: 4px solid var(--ok); font-size: clamp(0.92rem, 1.3vw, 1.1rem); }
 .face p { margin: 0; line-height: 1.45; }
+.face-title { margin: 0 0 0.4rem; color: #e6edf3; font-size: clamp(1rem, 1.5vw, 1.2rem); line-height: 1.25; }
 .face em { font-style: normal; color: var(--accent); }
 .face code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
 
@@ -588,27 +589,27 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
   <div class="flips">
     <div class="flip" style="--i:0"><div class="flip-inner">
       <div class="face front"><strong>Lock pessimista, não otimista</strong></div>
-      <div class="face back"><p><em>Por quê:</em> retry em wallet quente vira tempestade. <em>Custo:</em> apostas da mesma wallet esperam na fila do lock.</p></div>
+      <div class="face back"><h3 class="face-title">Lock pessimista, não otimista</h3><p><em>Por quê:</em> retry em wallet quente vira tempestade. <em>Custo:</em> apostas da mesma wallet esperam na fila do lock.</p></div>
     </div></div>
     <div class="flip" style="--i:1"><div class="flip-inner">
       <div class="face front"><strong>Uma reversão no total (desvio da regra 4)</strong></div>
-      <div class="face back"><p><em>Desafio:</em> uma reversão por tipo. <em>Feito:</em> uma no total. <em>Por quê:</em> REFUND e ROLLBACK da mesma BET creditariam duas vezes.</p></div>
+      <div class="face back"><h3 class="face-title">Uma reversão no total (desvio da regra 4)</h3><p><em>Desafio:</em> uma reversão por tipo. <em>Feito:</em> uma no total. <em>Por quê:</em> REFUND e ROLLBACK da mesma BET creditariam duas vezes.</p></div>
     </div></div>
     <div class="flip" style="--i:2"><div class="flip-inner">
       <div class="face front"><strong>SQL explícito, sem EntitySchema</strong></div>
-      <div class="face back"><p><em>Por quê:</em> garantias no banco que o EntitySchema não expressa. <em>Custo:</em> mapeamento escrito à mão.</p></div>
+      <div class="face back"><h3 class="face-title">SQL explícito, sem EntitySchema</h3><p><em>Por quê:</em> garantias no banco que o EntitySchema não expressa. <em>Custo:</em> mapeamento escrito à mão.</p></div>
     </div></div>
     <div class="flip" style="--i:3"><div class="flip-inner">
       <div class="face front"><strong>MiniStack em vez de LocalStack</strong></div>
-      <div class="face back"><p><em>Por quê:</em> LocalStack exige token para subir. <em>Custo:</em> é emulação; pode haver diferenças com a AWS.</p></div>
+      <div class="face back"><h3 class="face-title">MiniStack em vez de LocalStack</h3><p><em>Por quê:</em> LocalStack exige token para subir. <em>Custo:</em> é emulação; pode haver diferenças com a AWS.</p></div>
     </div></div>
     <div class="flip" style="--i:4"><div class="flip-inner">
       <div class="face front"><strong>Auth como ponto de extensão</strong></div>
-      <div class="face back"><p><em>Decisão:</em> sem autenticação real, com <code>AuthGuard</code> no-op. <em>Custo:</em> nenhum controle de acesso (README §2).</p></div>
+      <div class="face back"><h3 class="face-title">Auth como ponto de extensão</h3><p><em>Decisão:</em> sem autenticação real, com <code>AuthGuard</code> no-op. <em>Custo:</em> nenhum controle de acesso (README §2).</p></div>
     </div></div>
     <div class="flip" style="--i:5"><div class="flip-inner">
       <div class="face front"><strong>FAILED é terminal</strong></div>
-      <div class="face back"><p><em>Por quê:</em> trigger <code>wager_tx_guard</code> bloqueia mudança de estado final. <em>Custo:</em> a correção é operacional, pela DLQ.</p></div>
+      <div class="face back"><h3 class="face-title">FAILED é terminal</h3><p><em>Por quê:</em> trigger <code>wager_tx_guard</code> bloqueia mudança de estado final. <em>Custo:</em> a correção é operacional, pela DLQ.</p></div>
     </div></div>
   </div>
 </section>
