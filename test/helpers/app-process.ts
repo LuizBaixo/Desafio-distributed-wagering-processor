@@ -67,7 +67,16 @@ export async function spawnApp(opts: SpawnAppOptions): Promise<AppProcess> {
     pid: proc.pid,
     async kill(signal = "SIGTERM") {
       proc.kill(signal);
-      return proc.exited;
+      const code = await proc.exited;
+      // Um consumidor morto por SIGKILL deixa um ReceiveMessage com long poll pendente no SQS
+      // (MiniStack atrás do relay do Docker no Windows não percebe o cliente morto). Esse poll
+      // "fantasma" ainda recebe a próxima mensagem da fila e a deixa em voo (NotVisible) pelo
+      // VisibilityTimeout inteiro. Espera o poll expirar antes de devolver o controle.
+      if (signal === "SIGKILL" && opts.roles.split(",").includes("consumer")) {
+        const waitSeconds = Number(opts.env?.CONSUMER_WAIT_SECONDS ?? process.env.CONSUMER_WAIT_SECONDS ?? 10);
+        await Bun.sleep((waitSeconds + 2) * 1000);
+      }
+      return code;
     },
     waitExit: () => proc.exited,
     stderr: () => stderrTail,
