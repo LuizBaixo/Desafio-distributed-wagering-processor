@@ -43,6 +43,13 @@ interface ParsedMessage {
   cmd: WagerCommand;
 }
 
+function defaultIdempotencyKey(data: Record<string, unknown>): string | undefined {
+  const { providerId, externalTransactionId } = data;
+  if (typeof providerId !== "string" || typeof externalTransactionId !== "string") return undefined;
+  if (providerId.length === 0 || externalTransactionId.length === 0) return undefined;
+  return `${providerId}:${externalTransactionId}`;
+}
+
 function parseMessage(body: string): ParsedMessage {
   let json: unknown;
   try {
@@ -57,7 +64,8 @@ function parseMessage(body: string): ParsedMessage {
   }
   // A idempotencyKey viaja dentro de `data` na fila; o parser do comando a recebe à parte (como o header HTTP).
   const { idempotencyKey, ...rest } = envelope.data.data;
-  const key = typeof idempotencyKey === "string" ? idempotencyKey : undefined;
+  // Sem chave na mensagem, vale o padrão recomendado pelo desafio: {providerId}:{externalTransactionId}.
+  const key = typeof idempotencyKey === "string" ? idempotencyKey : defaultIdempotencyKey(rest);
   return { messageId: envelope.data.messageId, cmd: parseWagerCommand(rest, key) };
 }
 

@@ -118,6 +118,28 @@ describe("SQS consumer: happy path and deduplication", () => {
     expect(await receiveAll(WAGER_DLQ)).toHaveLength(0);
   });
 
+  test("a message without data.idempotencyKey defaults to {providerId}:{externalTransactionId}, and a resend is a replay", async () => {
+    await startConsumer();
+    const cmd = bet();
+    const { idempotencyKey: _omitted, ...data } = cmd;
+    const envelope = (messageId: string) =>
+      JSON.stringify({ messageId, type: "WagerTransactionRequested", occurredAt: new Date().toISOString(), data });
+    await sendRaw(envelope(`msg-a-${crypto.randomUUID()}`), wallet.walletId);
+    await waitProcessed(cmd.externalTransactionId);
+    await waitQueueEmpty();
+
+    expect(await txStatus(cmd.externalTransactionId)).toBe("PROCESSED");
+    expect(
+      await scalar(`SELECT idempotency_key AS v FROM wager_transactions WHERE external_transaction_id = $1`, [cmd.externalTransactionId]),
+    ).toBe(`${cmd.providerId}:${cmd.externalTransactionId}`);
+
+    await sendRaw(envelope(`msg-b-${crypto.randomUUID()}`), wallet.walletId);
+    await waitQueueEmpty();
+    await Bun.sleep(500);
+    expect(await debits()).toBe("1");
+    expect(await receiveAll(WAGER_DLQ)).toHaveLength(0);
+  });
+
   test("a BET without funds is stored REJECTED and acknowledged, not sent to the DLQ", async () => {
     await startConsumer();
     const cmd = bet("5000.00");
