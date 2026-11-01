@@ -41,14 +41,19 @@ export class AppModule {
       providers: [
         {
           provide: ReprocessPendingReferences,
-          inject: [UNIT_OF_WORK, WagerEngine, CLOCK, ID_GENERATOR, APP_CONFIG],
+          inject: [UNIT_OF_WORK, WagerEngine, CLOCK, ID_GENERATOR, LOGGER, METRICS, APP_CONFIG],
           useFactory: (
             uow: UnitOfWork,
             engine: WagerEngine,
             clock: Clock,
             ids: IdGenerator,
+            logger: Logger,
+            metrics: Metrics,
             config: AppConfig,
-          ) => new ReprocessPendingReferences(uow, engine, clock, ids, { maxAttempts: config.pending.maxAttempts }),
+          ) =>
+            new ReprocessPendingReferences(uow, engine, clock, ids, logger, metrics, {
+              maxAttempts: config.pending.maxAttempts,
+            }),
         },
         PendingReferenceWorker,
         {

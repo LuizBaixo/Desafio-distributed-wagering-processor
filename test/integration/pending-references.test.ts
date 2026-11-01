@@ -3,6 +3,13 @@ import type { INestApplication } from "@nestjs/common";
 import { ReprocessPendingReferences } from "../../src/application/wagering/reprocess-pending-references";
 import type { WagerCommand } from "../../src/application/wagering/wager-command";
 import { WagerTransactionKind } from "../../src/domain/wagering/enums";
+import type { UnitOfWork, TransactionScope } from "../../src/application/ports/unit-of-work";
+import { CLOCK, ID_GENERATOR, UNIT_OF_WORK } from "../../src/application/ports/tokens";
+import type { Clock } from "../../src/application/ports/clock";
+import type { IdGenerator } from "../../src/application/ports/id-generator";
+import type { Logger } from "../../src/application/ports/logger";
+import type { Metrics } from "../../src/application/ports/metrics";
+import { WagerEngine } from "../../src/application/wagering/wager-engine";
 import { PendingReferenceWorker } from "../../src/interfaces/workers/pending-reference.worker";
 import { assertLedgerConsistent } from "../helpers/assert-ledger-consistent";
 import { closePools, migrateUp, ownerPool, resetDb } from "../helpers/db";
@@ -255,5 +262,118 @@ describe("papel pending", () => {
       await on.close();
     }
     expect(worker.isRunning()).toBe(false);
+  });
+});
+
+describe("correções: re-checagem no limite e isolamento de erro por item", () => {
+  test("no limite, a BET chegou antes do tick: REFUND PROCESSED, não REJECTED", async () => {
+    const limited = await startTestApp({ PENDING_MAX_ATTEMPTS: "3" });
+    try {
+      const wres = await fetch(`${limited.baseUrl}/wallets`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ playerId: PLAYER, initialBalance: { amount: "1000.00", currency: "BRL" } }),
+      });
+      const walletId = ((await wres.json()) as { id: string }).id;
+      const refund = await postWager(
+        limited.baseUrl,
+        cmd(walletId, {
+          externalTransactionId: "refund-late",
+          kind: WagerTransactionKind.Refund,
+          referenceExternalTransactionId: "bet-late",
+        }),
+      );
+      expect(refund.status).toBe(202);
+
+      // Já esgotou as 3 tentativas, e a referência ainda não existia.
+      await ownerPool().query(
+        `UPDATE wager_transactions SET attempts = 3, next_attempt_at = now() - interval '1 second'
+          WHERE external_transaction_id = 'refund-late'`,
+      );
+      // A BET chega via HTTP antes do tick.
+      expect((await postWager(limited.baseUrl, cmd(walletId, { externalTransactionId: "bet-late" }))).status).toBe(200);
+
+      await (limited.app as INestApplication).get(ReprocessPendingReferences).tick();
+
+      expect((await statusOf("refund-late")).status).toBe("PROCESSED");
+      const { rows } = await ownerPool().query<{ balance: string }>(`SELECT balance FROM wallets WHERE id = $1`, [walletId]);
+      expect(rows[0]!.balance).toBe("1000.00");
+    } finally {
+      await limited.close();
+    }
+  });
+
+  test("UoW que lança no primeiro item: o segundo é processado, o primeiro fica para o lease; log e métrica registrados", async () => {
+    const walletId = await createWallet("100.00");
+    for (const id of ["win-a", "win-b"]) {
+      const res = await postWager(
+        app.baseUrl,
+        cmd(walletId, {
+          externalTransactionId: id,
+          kind: WagerTransactionKind.Win,
+          money: { amount: "1.00", currency: "BRL" },
+          referenceExternalTransactionId: "bet-x",
+        }),
+      );
+      expect(res.status).toBe(202);
+    }
+    expect((await postWager(app.baseUrl, cmd(walletId, { externalTransactionId: "bet-x" }))).status).toBe(200);
+
+    const container = app.app as INestApplication;
+    const real = container.get<UnitOfWork>(UNIT_OF_WORK);
+    // Chamada 0 é o claim; a 1 é o primeiro processOne, que falha.
+    let call = 0;
+    const flaky: UnitOfWork = {
+      run: <T>(work: (scope: TransactionScope) => Promise<T>) =>
+        real.run<T>(async (scope) => {
+          const n = call++;
+          if (n === 1) throw new Error("boom: first item");
+          return work(scope);
+        }),
+    };
+    const logs: Array<{ obj: Record<string, unknown>; msg?: string }> = [];
+    const logger: Logger = {
+      error(obj, msg) {
+        logs.push({ obj: obj as Record<string, unknown>, ...(msg !== undefined ? { msg } : {}) });
+      },
+    };
+    const retries: string[] = [];
+    const metrics = {
+      transaction() {},
+      duplicate() {},
+      retry(component: string) {
+        retries.push(component);
+      },
+      dlq() {},
+      lockConflict() {},
+      setOutboxLag() {},
+      observeProcessing() {},
+      reconciliationMismatch() {},
+    } as unknown as Metrics;
+
+    const worker = new ReprocessPendingReferences(
+      flaky,
+      container.get(WagerEngine),
+      container.get<Clock>(CLOCK),
+      container.get<IdGenerator>(ID_GENERATOR),
+      logger,
+      metrics,
+      { maxAttempts: 10 },
+    );
+
+    expect(await worker.tick()).toBe(2);
+
+    const a = await statusOf("win-a");
+    const b = await statusOf("win-b");
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual(["PENDING_REFERENCE", "PROCESSED"]);
+
+    const { rows } = await ownerPool().query<{ id: string }>(
+      `SELECT id FROM wager_transactions WHERE external_transaction_id = (
+         SELECT external_transaction_id FROM wager_transactions WHERE status = 'PENDING_REFERENCE' LIMIT 1)`,
+    );
+    expect(logs).toHaveLength(1);
+    expect(logs[0]!.obj).toMatchObject({ transactionId: rows[0]!.id, errorName: "Error" });
+    expect(retries).toEqual(["pending"]);
   });
 });

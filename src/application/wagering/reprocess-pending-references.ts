@@ -4,6 +4,8 @@ import type { UnitOfWork } from "../ports/unit-of-work";
 import { WagerTransactionRejected } from "../../domain/events/events";
 import { WagerTransactionStatus } from "../../domain/wagering/enums";
 import { FailureCode } from "../../domain/wagering/failure-code";
+import type { Logger } from "../ports/logger";
+import type { Metrics } from "../ports/metrics";
 import { WagerEngine } from "./wager-engine";
 
 export interface ReprocessOptions {
@@ -25,6 +27,8 @@ export class ReprocessPendingReferences {
     private readonly engine: WagerEngine,
     private readonly clock: Clock,
     private readonly ids: IdGenerator,
+    private readonly logger: Logger,
+    private readonly metrics: Metrics,
     private readonly options: ReprocessOptions,
   ) {}
 
@@ -40,7 +44,14 @@ export class ReprocessPendingReferences {
     );
     for (const item of claimed) {
       if (shouldStop()) break;
-      await this.processOne(item.id, item.walletId);
+      try {
+        await this.processOne(item.id, item.walletId);
+      } catch (err) {
+        // Um item com erro não derruba o lote. A linha volta sozinha quando o lease expirar.
+        const errorName = err instanceof Error ? err.name : "UnknownError";
+        this.logger.error({ transactionId: item.id, errorName }, "pending reference item failed");
+        this.metrics.retry("pending");
+      }
     }
     return claimed.length;
   }
@@ -58,8 +69,18 @@ export class ReprocessPendingReferences {
       const now = this.clock.now();
       const seed = { correlationId: this.ids.next(), causationId: tx.id };
 
-      // 4. Esgotou o limite: rejeita com REFERENCE_NOT_FOUND e avisa os dependentes.
+      // 4. Esgotou o limite: antes de rejeitar, confere se a referência chegou (em qualquer status).
+      //    Só rejeita com REFERENCE_NOT_FOUND se ela continuar ausente.
+      let limitReached = false;
       if (tx.attempts >= this.options.maxAttempts) {
+        const referenceExternalId = tx.referenceExternalTransactionId;
+        const referenceNow =
+          referenceExternalId !== undefined
+            ? await scope.transactions.findByExternalId(tx.providerId, referenceExternalId)
+            : null;
+        limitReached = referenceNow === null;
+      }
+      if (limitReached) {
         tx.reject(FailureCode.ReferenceNotFound, wallet.balance, now);
         await scope.transactions.update(tx);
         await this.engine.emit(scope, seed, now, (ctx) =>
