@@ -8,9 +8,13 @@
  *   LOAD_DURATION_S   janela medida, em segundos (padrão 30)
  *   LOAD_WARMUP_S     aquecimento ANTES da janela medida, em segundos (padrão 5); não entra nas latências
  *   LOAD_PROFILES     spread,hot,mixed (padrão: os três)
+ *   LOAD_SINK_WORKERS workers do consumidor downstream simulado em wallet-events.fifo (padrão 4; 0 desliga)
+ *   LOAD_SINK_ENDPOINT endpoint SQS do sink (padrão http://localhost:4566)
+ *   LOAD_EVENTS_QUEUE fila de eventos da outbox (padrão wallet-events.fifo)
  *
  * Sai com código 1 se alguma wallet divergir na reconciliação ao fim de um perfil.
  */
+import { DeleteMessageBatchCommand, GetQueueUrlCommand, ReceiveMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
@@ -38,6 +42,9 @@ const DRAIN_TIMEOUT_MS = 60_000;
 const SETTLE_TIMEOUT_MS = 900_000;
 const SPREAD_WALLETS = 200;
 const MIXED_WALLETS = 200;
+const SINK_WORKERS = intEnv("LOAD_SINK_WORKERS", 4);
+const SINK_ENDPOINT = process.env.LOAD_SINK_ENDPOINT ?? "http://localhost:4566";
+const EVENTS_QUEUE = process.env.LOAD_EVENTS_QUEUE ?? "wallet-events.fifo";
 
 function intEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -194,6 +201,60 @@ async function maxOutboxLag(): Promise<number> {
   return max;
 }
 
+// ------------------------------------------------------------------------------------------ events sink
+
+/**
+ * Consumidor downstream simulado: esvazia a fila de eventos durante todo o run, inclusive na espera de
+ * drenagem. Sem ele, o backlog de wallet-events.fifo cresce e o próprio envio da outbox fica mais lento.
+ */
+interface Sink {
+  received(): number;
+  stop(): Promise<void>;
+}
+
+async function startSink(): Promise<Sink | undefined> {
+  if (SINK_WORKERS === 0) return undefined;
+  const sqs = new SQSClient({
+    endpoint: SINK_ENDPOINT,
+    region: "us-east-1",
+    credentials: { accessKeyId: "test", secretAccessKey: "test" },
+  });
+  const QueueUrl = (await sqs.send(new GetQueueUrlCommand({ QueueName: EVENTS_QUEUE }))).QueueUrl!;
+  let received = 0;
+  let running = true;
+  const workers = Array.from({ length: SINK_WORKERS }, async () => {
+    while (running) {
+      try {
+        const res = await sqs.send(
+          new ReceiveMessageCommand({ QueueUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: 1, VisibilityTimeout: 30 }),
+        );
+        const messages = res.Messages ?? [];
+        if (messages.length === 0) continue;
+        const del = await sqs.send(
+          new DeleteMessageBatchCommand({
+            QueueUrl,
+            Entries: messages.map((m, i) => ({ Id: String(i), ReceiptHandle: m.ReceiptHandle! })),
+          }),
+        );
+        received += del.Successful?.length ?? 0;
+      } catch {
+        // falha transitória do endpoint: tenta de novo
+        await Bun.sleep(500);
+      }
+    }
+  });
+  return {
+    received: () => received,
+    async stop() {
+      running = false;
+      await Promise.all(workers);
+      sqs.destroy();
+    },
+  };
+}
+
+let sink: Sink | undefined;
+
 // ------------------------------------------------------------------------------------------ profiles
 
 interface Profile {
@@ -306,6 +367,7 @@ interface ProfileResult {
   outboxLagSeconds: { samples: number; max: number; p95: number };
   outboxDrain: { drained: boolean; seconds: number; lagSecondsAtEnd: number };
   preSettle: { settled: boolean; seconds: number };
+  sink: { received: number; ratePerSecond: number; workers: number };
   reconciliation: { checked: number; inconsistent: number; failures: number; inconsistentWallets: string[] };
 }
 
@@ -327,6 +389,9 @@ async function runProfile(def: Profile): Promise<ProfileResult> {
   }
   const settleSeconds = (performance.now() - settleStart) / 1000;
   if (settleSeconds > 2) console.log(`    backlog anterior da outbox: esperou ${round(settleSeconds)}s (settled=${settled})`);
+
+  const sinkStart = performance.now();
+  const sinkBefore = sink?.received() ?? 0;
 
   const created = await createWallets(def.walletCount);
   const wallets = created.map((w) => w.id);
@@ -421,6 +486,8 @@ async function runProfile(def: Profile): Promise<ProfileResult> {
   }
   const drainSeconds = (performance.now() - loadEndedAt) / 1000;
   const lagAtEnd = await maxOutboxLag().catch(() => -1);
+  const sinkReceived = (sink?.received() ?? 0) - sinkBefore;
+  const sinkSeconds = (performance.now() - sinkStart) / 1000;
 
   // Reconciliação de TODAS as wallets do perfil.
   const reconciliation = { checked: 0, inconsistent: 0, failures: 0, inconsistentWallets: [] as string[] };
@@ -506,6 +573,11 @@ async function runProfile(def: Profile): Promise<ProfileResult> {
     },
     outboxDrain: { drained, seconds: round(drainSeconds), lagSecondsAtEnd: round(lagAtEnd) },
     preSettle: { settled, seconds: round(settleSeconds) },
+    sink: {
+      received: sinkReceived,
+      ratePerSecond: round(sinkReceived / sinkSeconds),
+      workers: SINK_WORKERS,
+    },
     reconciliation,
   };
   return result;
@@ -549,6 +621,7 @@ function printTable(results: ProfileResult[]): void {
     "lag máx s": r.outboxLagSeconds.max,
     "lag p95 s": r.outboxLagSeconds.p95,
     "drenagem s": r.outboxDrain.drained ? r.outboxDrain.seconds : `>${DRAIN_TIMEOUT_MS / 1000}`,
+    "sink/s": r.sink.ratePerSecond,
     "reconc. ruins": r.reconciliation.inconsistent + r.reconciliation.failures,
   }));
   console.log("\n");
@@ -576,8 +649,13 @@ async function main(): Promise<void> {
   console.log("alvos:", TARGETS.join(", "));
   console.log("ambiente:", env);
 
+  sink = await startSink();
   const results: ProfileResult[] = [];
-  for (const name of PROFILES) results.push(await runProfile(PROFILE_DEFS[name]!));
+  try {
+    for (const name of PROFILES) results.push(await runProfile(PROFILE_DEFS[name]!));
+  } finally {
+    await sink?.stop();
+  }
 
   printTable(results);
 
@@ -592,6 +670,9 @@ async function main(): Promise<void> {
       durationS: DURATION_S,
       warmupS: WARMUP_S,
       profiles: PROFILES,
+      sinkWorkers: SINK_WORKERS,
+      sinkEndpoint: SINK_WORKERS > 0 ? SINK_ENDPOINT : null,
+      eventsQueue: EVENTS_QUEUE,
       requestTimeoutMs: REQUEST_TIMEOUT_MS,
       drainTimeoutMs: DRAIN_TIMEOUT_MS,
       preProfileSettleTimeoutMs: SETTLE_TIMEOUT_MS,
