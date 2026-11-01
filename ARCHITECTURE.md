@@ -1,8 +1,8 @@
 # ARCHITECTURE
 
-Decisões, trade-offs e limitações do Distributed Wagering Processor. Derivado do [Design](../Desafio/03-Plano/Design.md), com as atualizações registradas em `04-Progresso/Log.md`. Quando a implementação diverge do Design, a divergência está escrita aqui.
+Decisões, trade-offs e limitações do Distributed Wagering Processor. Setup e comandos estão no [README](README.md).
 
-**Status:** rascunho. Seções de SQS e outbox ainda dependem das Tarefas 13 e 14 e estão marcadas com `TODO`.
+**Status:** final. Todas as seções refletem o código no commit em que este arquivo foi fechado.
 
 ## 1. Camadas e portas
 
@@ -28,11 +28,13 @@ Decisões, trade-offs e limitações do Distributed Wagering Processor. Derivado
 Uma imagem, um código. `APP_ROLES` (lista separada por vírgula, `api,consumer,outbox,pending`) decide o que cada processo liga:
 
 - `api`: rotas HTTP.
-- `consumer`: consumidor SQS `wager-transactions.fifo`. `TODO confirmar após T13`.
-- `outbox`: publicador da outbox. `TODO confirmar após T14`.
-- `pending`: worker de referências pendentes (ligado em `onApplicationBootstrap`, desligado no shutdown).
+- `consumer`: `WagerConsumer`, consumidor de `wager-transactions.fifo` (registrado pelo `MessagingModule`).
+- `outbox`: `OutboxPublisher`, publica em `wallet-events.fifo` (registrado pelo `OutboxModule`).
+- `pending`: `PendingReferenceWorker`, worker de referências pendentes.
 
-Os testes sobem a aplicação com `APP_ROLES=api` por padrão. O worker de pendentes não liga sozinho nos testes; eles chamam `tick()` diretamente.
+Cada loop liga em `onApplicationBootstrap` só se o papel estiver em `APP_ROLES`, e para em `beforeApplicationShutdown`. O MikroORM fecha em `onApplicationShutdown`, que o Nest executa por último, então o trabalho em andamento termina com o banco ainda disponível. Antes, o ORM fechava em `onModuleDestroy`, que roda *antes* de `beforeApplicationShutdown`, e mensagens em andamento falhavam com `Unable to acquire a connection`.
+
+Os testes sobem a aplicação com `APP_ROLES=api` por padrão. Os loops não ligam sozinhos nos testes de integração; eles chamam `tick()` diretamente. Os testes de concorrência sobem processos reais com os papéis necessários.
 
 Compose local: `postgres`, `ministack`, `sqs-init` (cria as filas e sai), `migrate` (roda as migrations como `wagering_owner` e sai) e `app` escalável, com `APP_ROLES=api,consumer,outbox,pending`.
 
@@ -163,11 +165,11 @@ Consistente em todos os endpoints (Design §12):
 
 Formato de erro: `{ "error": { "code": "...", "message": "..." } }`.
 
-Pendências em aberto no mapeamento: `PermanentInfrastructureError` cai em `500` (o Design pede `FAILED` para permanente, e a resposta HTTP ainda não tem código próprio). Erros de domínio que não são de payload nem de wallet caem em `500` se escaparem do caso de uso, mas o caso de uso já devolve `422` para regras de negócio.
+`PermanentInfrastructureError` cai em `500 INTERNAL`: não é algo que o provedor resolva reenviando. Erros de domínio que escapem do caso de uso também caem em `500`, mas isso indica bug: o caso de uso já converte toda regra de negócio em `422` com `failureCode`.
 
 ## 11. Referências fora de ordem
 
-Quando a referência ainda não existe, a transação grava `PENDING_REFERENCE` com `next_attempt_at` e emite `WagerTransactionPendingReference`. Quando a BET chega e vira `PROCESSED`, as pendentes que a referenciam ficam com `next_attempt_at = now()` (`markDependentsDue`).
+Quando a referência ainda não existe, a transação grava `PENDING_REFERENCE` com `next_attempt_at` e emite `WagerTransactionPendingReference`. Quando a referência chega e termina em qualquer estado (`PROCESSED`, `noop` de `LOSS` ou `REJECTED`), as pendentes que a referenciam ficam com `next_attempt_at = now()` (`markDependentsDue`). Assim o worker as resolve logo, em vez de esperar o backoff.
 
 **Worker** (`ReprocessPendingReferences` e `PendingReferenceWorker`):
 
@@ -181,25 +183,36 @@ Quando a referência ainda não existe, a transação grava `PENDING_REFERENCE` 
 
 ## 12. SQS
 
-<!-- TODO confirmar após T13/T14 -->
+**Filas:** `wager-transactions.fifo`, com redrive para `wager-transactions-dlq.fifo` e `maxReceiveCount = 5`, e `wallet-events.fifo`, destino da outbox. Todas são criadas pelo `sqs-init`, no compose e nos testes.
 
-Desenho do Design §13, a ser confirmado com a implementação do consumidor:
+**Produtor:** `MessageGroupId = walletId` e `MessageDeduplicationId = messageId`. Isso é otimização, não garantia: o banco continua responsável pelas invariantes.
 
-- Filas: `wager-transactions.fifo` (redrive para `wager-transactions-dlq.fifo`, `maxReceiveCount = 5`) e `wallet-events.fifo` (destino da outbox). Criadas pelo `sqs-init` no compose e nos testes.
-- Produtor: `MessageGroupId = walletId`, `MessageDeduplicationId = messageId`. Otimização, não garantia.
-- Consumidor: long polling; parse inválido vai para a DLQ com o motivo e depois é deletado; a inbox deduplica por `(consumer_name, message_id)` na mesma transação do caso de uso; ack só depois do commit; erro transitório sem ack, com `ChangeMessageVisibility` em backoff exponencial de teto 60 s.
-- `SIGTERM`: para de buscar, espera o que está em andamento por até 20 s e devolve o restante com visibilidade 0.
+**Consumidor** (`WagerConsumer`):
+- Long polling (`CONSUMER_WAIT_SECONDS=10`), até `CONSUMER_CONCURRENCY=5` mensagens em paralelo por instância.
+- `ReceiveMessage` pede `ApproximateReceiveCount`.
+- Reutiliza o **mesmo caso de uso** do HTTP (`SubmitWagerTransaction`). A inbox (`INSERT ... ON CONFLICT (consumer_name, message_id) DO NOTHING`) entra na mesma transação SQL. A inbox deduplica a entrega; a `idempotencyKey` deduplica a operação.
+
+**Classificação de erros:**
+
+| Situação | Ação |
+|---|---|
+| `PROCESSED`, `REJECTED`, `PENDING_REFERENCE`, conflito, duplicata da inbox | `DeleteMessage` (ack), **só depois do commit** |
+| JSON malformado, envelope inválido, `InvalidPayloadError`, `InvalidMoneyError` | permanente: copia para a DLQ com o atributo `reason` (`MALFORMED_JSON`, `INVALID_PAYLOAD`, `INVALID_MONEY`) e só então apaga da fila principal. Se a cópia falhar, vira retry: nunca apaga sem copiar |
+| `TransientInfrastructureError`, `ConcurrencyViolationError`, `lock_timeout` | transitório: sem ack, `ChangeMessageVisibility(min(2^receiveCount, 60))`, métrica `retries_total{component="consumer"}`. Depois de 5 recebimentos, o redrive do SQS move a mensagem para a DLQ |
+| Qualquer outro erro | permanente com `reason = INFRA_PERMANENT`. Neste caso a transação **não** é gravada como `FAILED`; a mensagem na DLQ é o registro auditável |
+
+**Shutdown:** o consumidor para de iniciar novos `receive`, mas não aborta o long poll em curso. Abortar deixaria as mensagens que o servidor já entregou invisíveis por até 30 s. As mensagens trazidas por esse último `receive` voltam com visibilidade 0. Depois ele espera as mensagens em andamento por até `SHUTDOWN_GRACE_MS=20000` e devolve as restantes com `ChangeMessageVisibility(0)`.
+
+**Crash depois do commit e antes do ack:** a mensagem volta pelo visibility timeout, a inbox detecta a duplicata e nada é aplicado de novo. Teste C5 (`FAULT_INJECT=exit_after_commit`, ativo só com `NODE_ENV=test`).
 
 ## 13. Outbox
 
-<!-- TODO confirmar após T13/T14 -->
-
-Desenho do Design §14, a ser confirmado com a implementação do publicador:
-
-- Atomicidade: transação, saldo, lançamento, inbox e evento são gravados na mesma transação SQL. Evento só vai para a fila depois do commit.
-- Claim por lease: `FOR UPDATE SKIP LOCKED` com `locked_until`, sem bloquear outros publicadores.
-- Publicação com `MessageDeduplicationId = eventId`. Crash entre publicar e marcar: o lease expira e outra instância republica. É at-least-once; o consumidor deduplica por `eventId`.
-- Backoff de retry: `min(2^attempts, 300)` segundos.
+- **Atomicidade:** transação, saldo, lançamento, inbox e evento são gravados na mesma transação SQL. O evento só vai para a fila depois do commit, pelo publicador.
+- **Claim:** `UPDATE ... SET locked_until = now + lease WHERE id IN (SELECT ... WHERE published_at IS NULL AND next_attempt_at <= now AND (locked_until IS NULL OR locked_until < now) FOR UPDATE SKIP LOCKED LIMIT 50) RETURNING *`, em transação curta. Vários publicadores não pegam a mesma linha nem se bloqueiam.
+- **Publicação:** `MessageDeduplicationId = eventId` e `MessageGroupId = aggregateId`. Depois do envio, `published_at` é gravado em outra transação curta.
+- **Falha de envio:** `scheduleRetry` (backoff `min(2^attempts, 300)` s), libera o lease, incrementa `retries_total{component="outbox"}` e segue para a próxima mensagem do lote.
+- **Crash entre publicar e marcar:** o lease (30 s) expira e outra instância republica. Isso é at-least-once: o consumidor do evento deduplica por `eventId`, e o FIFO também deduplica dentro da janela de 5 minutos. Testes: publicadores concorrentes no mesmo processo e em 2 processos (C6, com 300 eventos, cada um publicado exatamente uma vez), e crash com lease de 1 s.
+- **Lag:** `outbox_lag_seconds` é a idade do evento pendente mais antigo, atualizada a cada tick.
 - Eventos: `WagerTransactionProcessed`, `WagerTransactionRejected`, `WalletBalanceChanged` (só quando o saldo muda), `WagerTransactionPendingReference`, e `WalletCreated` (extra).
 - Envelope: classe abstrata `IntegrationEvent<T>` com `eventType` e `version` no tipo. `data` carrega `MoneyProps` (string), nunca `Money`.
 
@@ -235,7 +248,7 @@ Pontos em que o README deixou margem. Cada um tem teste.
 - **Logs:** pino em JSON. Contexto via `AsyncLocalStorage` (`correlationId`, `messageId`, `transactionId`, `walletId`, `providerId`). Redaction de `*.money`, `*.amount`, `*.balance`, `req.body` e `req.headers.authorization`. Erros de 500 são logados com nome e stack, nunca com o body.
 - **Métricas** (prom-client, `GET /metrics`): `wager_transactions_total{status,kind}`, `duplicates_detected_total{source,result}`, `retries_total{component}`, `dlq_messages_total`, `lock_conflicts_total`, `outbox_lag_seconds`, `processing_duration_seconds`, `reconciliation_mismatches_total`.
   - `duplicates_detected_total` tem o label `result` além de `source`. O Design §16 lista só `source`.
-- **Health:** `GET /health/live` responde só se o processo vive. `GET /health/ready` faz `SELECT 1` e uma checagem de SQS. `TODO confirmar após T13`, porque a Tarefa 13 troca o ping pelas portas.
+- **Health:** `GET /health/live` responde só se o processo vive. `GET /health/ready` faz `SELECT 1` e `QueuePort.ping()` (`GetQueueAttributes` na fila principal); se qualquer um falhar, responde `503 INFRA_UNAVAILABLE`.
 
 ## 17. Troca de LocalStack por MiniStack
 
@@ -255,6 +268,8 @@ Limitação conhecida: o MiniStack é uma emulação. Comportamentos finos de SQ
 - Sem ledger de partidas dobradas (opcional no desafio).
 - Sem teste de carga ainda (`bun run test:load` não existe).
 - Autenticação é um ponto de extensão, não uma implementação.
-- Worker de pendentes: o limite de tentativas conta só quando a referência não existe. Se a referência existe e continua `PENDING_REFERENCE`, o worker segue reprocessando, sem teto de tempo, até ela resolver. Um teto para essa cadeia não foi definido.
+- Cadeias de pendentes: se a referência existe mas também está `PENDING_REFERENCE`, o dependente continua pendente. A cadeia sempre termina, porque a raiz esgota o limite e é rejeitada com `REFERENCE_NOT_FOUND`, e o `markDependentsDue` no `reject` acorda os dependentes. Eles então terminam com `REFERENCE_NOT_PROCESSED`. O tempo máximo de uma cadeia é o tempo da raiz mais um ciclo do worker por nível.
+- `SIGTERM` com processo real não é testado no Windows: o Windows não entrega `SIGTERM` (o `kill` vira `TerminateProcess`), e esse teste usa `skipIf(win32)`. O mesmo caminho é coberto dentro do processo, via `app.close()`, com uma mensagem lenta (`TEST_SLOW_MS`) que termina `PROCESSED`, e com o prazo vencido (`SHUTDOWN_GRACE_MS`), em que a mensagem volta visível. Em Linux o teste com processo roda.
+- Erro permanente inesperado no consumidor vai para a DLQ, mas não grava a transação como `FAILED`.
 - MiniStack é emulação: diferenças com AWS podem existir.
-- Os testes de integração compartilham o banco de teste por agente (`TEST_DB_NAME`). Execução concorrente no mesmo banco pode gerar falhas intermitentes; a solução é um banco por agente.
+- Testes de integração e concorrência isolam o banco por execução com `TEST_DB_NAME` (um banco por agente ou por pipeline) e as portas dos processos com `TEST_PORT_BASE`. Duas execuções no mesmo banco se atrapalham, porque cada teste faz `TRUNCATE`.

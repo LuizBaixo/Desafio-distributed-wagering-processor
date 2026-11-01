@@ -4,7 +4,7 @@ Serviço financeiro que processa transações de aposta (`BET`, `WIN`, `LOSS`, `
 
 Decisões de arquitetura, trade-offs e limitações estão em [ARCHITECTURE.md](ARCHITECTURE.md).
 
-**Status:** rascunho. Itens marcados como `TODO` dependem de tarefas ainda em andamento (consumidor SQS e outbox publisher).
+**Decisões e trade-offs:** ver [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Pré-requisitos
 
@@ -147,11 +147,11 @@ curl localhost:3001/health/ready    # PostgreSQL e SQS alcançáveis
 curl localhost:3001/metrics         # Prometheus
 ```
 
-`/health/ready` faz um ping simples (`SELECT 1` e `GetQueueUrl`). `TODO` confirmar após a Tarefa 13, que troca o ping pelas portas.
+`/health/ready` faz `SELECT 1` no PostgreSQL e `GetQueueAttributes` na fila principal; se qualquer um falhar, responde `503`.
 
 ### Mensagens SQS
 
-`TODO` confirmar após a Tarefa 13 (consumidor). As filas já são criadas pelo `sqs-init`:
+O papel `consumer` lê `wager-transactions.fifo` e processa pelo mesmo caso de uso do HTTP. Exemplo de envio:
 
 ```bash
 aws --endpoint-url http://localhost:4566 sqs send-message \
@@ -159,6 +159,12 @@ aws --endpoint-url http://localhost:4566 sqs send-message \
   --message-group-id <walletId> \
   --message-deduplication-id msg-123 \
   --message-body '{"messageId":"msg-123","type":"WagerTransactionRequested","occurredAt":"2026-07-29T15:00:00.000Z","data":{"providerId":"provider-a","externalTransactionId":"transaction-123","idempotencyKey":"provider-a:transaction-123","playerId":"0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1","walletId":"<walletId>","roundId":"round-987","gameId":"fortune-chimp","kind":"BET","money":{"amount":"25.00","currency":"BRL"}}}'
+```
+
+Depois do processamento, os eventos aparecem em `wallet-events.fifo`:
+
+```bash
+aws --endpoint-url http://localhost:4566 sqs receive-message \n  --queue-url http://localhost:4566/000000000000/wallet-events.fifo --max-number-of-messages 10
 ```
 
 Credenciais do MiniStack: qualquer valor (`AWS_ACCESS_KEY_ID=test`, `AWS_SECRET_ACCESS_KEY=test`).
@@ -180,6 +186,7 @@ Variáveis lidas por `src/config/config.ts` (valores padrão entre parênteses):
 | `WALLET_EVENTS_QUEUE_NAME` | `wallet-events.fifo` | Fila de eventos da outbox |
 | `PENDING_MAX_ATTEMPTS` | `10` | Tentativas do worker de pendentes antes de `REFERENCE_NOT_FOUND` |
 | `PENDING_POLL_MS` | `1000` | Intervalo do worker de pendentes |
+| `OUTBOX_POLL_MS` | `500` | Intervalo do publicador da outbox |
 | `CONSUMER_CONCURRENCY` | `5` | Mensagens em paralelo por instância |
 | `SHUTDOWN_GRACE_MS` | `20000` | Tempo para terminar mensagens em andamento no `SIGTERM` |
 | `CONSUMER_VISIBILITY_TIMEOUT_SECONDS` | `30` | VisibilityTimeout do consumidor |
@@ -195,7 +202,7 @@ src/
   domain/          # regras puras: Money, Wallet, WagerTransaction, decideWager, eventos
   application/     # casos de uso e portas (UnitOfWork, repositórios, Clock, IdGenerator, Metrics)
   infrastructure/  # MikroORM, repositórios SQL, SQS, observabilidade
-  interfaces/      # controllers HTTP, workers
+  interfaces/      # controllers HTTP, consumidor SQS, workers (outbox, pendentes)
 test/
   unit/            # domínio e aplicação, sem I/O
   integration/     # PostgreSQL e MiniStack reais
