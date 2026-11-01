@@ -270,7 +270,7 @@ Limitação conhecida: o MiniStack é uma emulação. Comportamentos finos de SQ
 - Reconciliação detecta, não corrige. Divergência vira log, métrica e resposta com `consistent: false`.
 - Cenários de teste usam só `BRL`. Multi-moeda está no modelo; conflito é testado com `USD`.
 - Sem ledger de partidas dobradas (opcional no desafio).
-- Sem teste de carga ainda (`bun run test:load` não existe).
+- Throughput de publicação da outbox: cerca de 100 eventos/s nas 3 réplicas contra o MiniStack, porque o envio é feito um a um, sem `SendMessageBatch`. Sob carga sustentada o backlog cresce. A correção não é afetada, só a latência de entrega dos eventos. Detalhes e melhorias em [docs/load-test.md](docs/load-test.md).
 - Autenticação é um ponto de extensão, não uma implementação.
 - Cadeias de pendentes: se a referência existe mas também está `PENDING_REFERENCE`, o dependente continua pendente. A cadeia sempre termina, porque a raiz esgota o limite e é rejeitada com `REFERENCE_NOT_FOUND`, e o `markDependentsDue` no `reject` acorda os dependentes. Eles então terminam com `REFERENCE_NOT_PROCESSED`. O tempo máximo de uma cadeia é o tempo da raiz mais um ciclo do worker por nível.
 - O teste de `SIGTERM` com processo real roda em Linux e macOS. No Windows ele é pulado (`skipIf(win32)`), porque o Windows não entrega `SIGTERM` (o `kill` vira `TerminateProcess`). Lá o mesmo caminho é coberto dentro do processo, via `app.close()`. A suíte completa foi verificada nos dois sistemas.

@@ -54,6 +54,7 @@ Para parar: `docker compose down -v`.
 | `bun run test:integration` | Testes de integração contra PostgreSQL e MiniStack de teste |
 | `bun run test:concurrency` | Testes de concorrência com processos reais (`test/concurrency`) |
 | `bun run test` | Os três acima, em sequência |
+| `bun run test:load` | Teste de carga contra a stack local com 3 réplicas (perfis `spread`, `hot` e `mixed`). Metodologia, resultados e análise em [docs/load-test.md](docs/load-test.md) |
 | `bun run migration:up` | Aplica as migrations (usa `MIGRATION_DATABASE_URL`, senão `DATABASE_URL`, senão o owner de teste em `localhost:5433`) |
 | `bun run migration:down` | Reverte as migrations |
 | `bun run infra:test:up` | Sobe a infra de teste (`docker-compose.test.yml`): Postgres em `5433`, MiniStack em `4567` |
