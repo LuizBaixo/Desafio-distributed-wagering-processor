@@ -7,14 +7,30 @@
  *   LOAD_CONCURRENCY  usuários virtuais (padrão 50)
  *   LOAD_DURATION_S   janela medida, em segundos (padrão 30)
  *   LOAD_WARMUP_S     aquecimento ANTES da janela medida, em segundos (padrão 5); não entra nas latências
- *   LOAD_PROFILES     spread,hot,mixed (padrão: os três)
+ *   LOAD_PROFILES     spread,hot,mixed,sqs (padrão: os três HTTP; sqs é opcional)
  *   LOAD_SINK_WORKERS workers do consumidor downstream simulado em wallet-events.fifo (padrão 4; 0 desliga)
  *   LOAD_SINK_ENDPOINT endpoint SQS do sink (padrão http://localhost:4566)
  *   LOAD_EVENTS_QUEUE fila de eventos da outbox (padrão wallet-events.fifo)
  *
- * Sai com código 1 se alguma wallet divergir na reconciliação ao fim de um perfil.
+ * Perfil sqs (entrada por SQS, sem HTTP de aposta): enfileira BET em wager-transactions.fifo em ondas,
+ * com contrapressão pela profundidade da fila, e mede a drenagem até a fila zerar.
+ *   LOAD_SQS_ENDPOINT       endpoint SQS (padrão http://localhost:4566)
+ *   LOAD_SQS_MESSAGES       mensagens únicas (padrão 20000); 5% são reenviadas com o mesmo messageId
+ *   LOAD_SQS_WAVE_SIZE      mensagens únicas por onda (padrão 2000)
+ *   LOAD_SQS_MAX_BACKLOG    profundidade máxima (visíveis + em voo) para iniciar a onda seguinte (padrão 2000)
+ *   LOAD_SQS_DRAIN_TIMEOUT_S espera máxima pela drenagem, em segundos (padrão 600)
+ *
+ * Sai com código 1 se alguma wallet divergir na reconciliação, se a DLQ não estiver vazia ao fim do
+ * perfil sqs, ou se a fila não drenar dentro do tempo.
  */
-import { DeleteMessageBatchCommand, GetQueueUrlCommand, ReceiveMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import {
+  DeleteMessageBatchCommand,
+  GetQueueAttributesCommand,
+  GetQueueUrlCommand,
+  ReceiveMessageCommand,
+  SendMessageBatchCommand,
+  SQSClient,
+} from "@aws-sdk/client-sqs";
 import { mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
@@ -45,6 +61,17 @@ const MIXED_WALLETS = 200;
 const SINK_WORKERS = intEnv("LOAD_SINK_WORKERS", 4);
 const SINK_ENDPOINT = process.env.LOAD_SINK_ENDPOINT ?? "http://localhost:4566";
 const EVENTS_QUEUE = process.env.LOAD_EVENTS_QUEUE ?? "wallet-events.fifo";
+const SQS_ENDPOINT = process.env.LOAD_SQS_ENDPOINT ?? "http://localhost:4566";
+const SQS_MESSAGES = intEnv("LOAD_SQS_MESSAGES", 20_000);
+const SQS_WAVE_SIZE = intEnv("LOAD_SQS_WAVE_SIZE", 2_000);
+const SQS_MAX_BACKLOG = intEnv("LOAD_SQS_MAX_BACKLOG", 2_000);
+const SQS_DRAIN_TIMEOUT_MS = intEnv("LOAD_SQS_DRAIN_TIMEOUT_S", 600) * 1000;
+const SQS_WALLETS = 200;
+const SQS_SEND_CONCURRENCY = 4;
+/** Uma em cada 20 mensagens únicas (5%) é reenviada com o mesmo messageId e outro MessageDeduplicationId. */
+const SQS_RESEND_EVERY = 20;
+const SQS_WAGER_QUEUE = "wager-transactions.fifo";
+const SQS_WAGER_DLQ = "wager-transactions-dlq.fifo";
 
 function intEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -199,6 +226,50 @@ async function maxOutboxLag(): Promise<number> {
   let max = 0;
   for (const snap of snaps) for (const v of snap.get("outbox_lag_seconds")?.values() ?? []) max = Math.max(max, v);
   return max;
+}
+
+/** Espera o outbox_lag_seconds chegar a 0 em todos os alvos. Devolve false se o prazo estourar. */
+async function waitOutboxIdle(timeoutMs: number, pollMs: number): Promise<boolean> {
+  const started = performance.now();
+  while (performance.now() - started < timeoutMs) {
+    try {
+      if ((await maxOutboxLag()) === 0) return true;
+    } catch {
+      // alvo momentaneamente fora: tenta de novo
+    }
+    await Bun.sleep(pollMs);
+  }
+  return false;
+}
+
+interface Reconciliation {
+  checked: number;
+  inconsistent: number;
+  failures: number;
+  inconsistentWallets: string[];
+}
+
+/** POST /wallets/:id/reconciliation em todas as wallets dadas. */
+async function reconcileAll(wallets: string[]): Promise<Reconciliation> {
+  const reconciliation: Reconciliation = { checked: 0, inconsistent: 0, failures: 0, inconsistentWallets: [] };
+  let ri = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(20, wallets.length) }, async () => {
+      while (ri < wallets.length) {
+        const id = wallets[ri++]!;
+        const r = await post(`${nextTarget()}/wallets/${id}/reconciliation`, "{}");
+        reconciliation.checked++;
+        if (r.status !== 200) {
+          reconciliation.failures++;
+          reconciliation.inconsistentWallets.push(id);
+        } else if ((r.json as { consistent?: boolean } | null)?.consistent !== true) {
+          reconciliation.inconsistent++;
+          reconciliation.inconsistentWallets.push(id);
+        }
+      }
+    }),
+  );
+  return reconciliation;
 }
 
 // ------------------------------------------------------------------------------------------ events sink
@@ -375,18 +446,7 @@ async function runProfile(def: Profile): Promise<ProfileResult> {
   console.log(`\n=== perfil ${def.name}: ${def.walletCount} wallet(s), ${CONCURRENCY} VUs, aquecimento ${WARMUP_S}s + ${DURATION_S}s medidos`);
 
   const settleStart = performance.now();
-  let settled = false;
-  while (performance.now() - settleStart < SETTLE_TIMEOUT_MS) {
-    try {
-      if ((await maxOutboxLag()) === 0) {
-        settled = true;
-        break;
-      }
-    } catch {
-      // tenta de novo
-    }
-    await Bun.sleep(1000);
-  }
+  const settled = await waitOutboxIdle(SETTLE_TIMEOUT_MS, 1000);
   const settleSeconds = (performance.now() - settleStart) / 1000;
   if (settleSeconds > 2) console.log(`    backlog anterior da outbox: esperou ${round(settleSeconds)}s (settled=${settled})`);
 
@@ -472,42 +532,14 @@ async function runProfile(def: Profile): Promise<ProfileResult> {
   const after = await scrapeAll();
 
   // Drenagem da outbox.
-  let drained = false;
-  while (performance.now() - loadEndedAt < DRAIN_TIMEOUT_MS) {
-    try {
-      if ((await maxOutboxLag()) === 0) {
-        drained = true;
-        break;
-      }
-    } catch {
-      // tenta de novo
-    }
-    await Bun.sleep(500);
-  }
+  const drained = await waitOutboxIdle(DRAIN_TIMEOUT_MS - (performance.now() - loadEndedAt), 500);
   const drainSeconds = (performance.now() - loadEndedAt) / 1000;
   const lagAtEnd = await maxOutboxLag().catch(() => -1);
   const sinkReceived = (sink?.received() ?? 0) - sinkBefore;
   const sinkSeconds = (performance.now() - sinkStart) / 1000;
 
   // Reconciliação de TODAS as wallets do perfil.
-  const reconciliation = { checked: 0, inconsistent: 0, failures: 0, inconsistentWallets: [] as string[] };
-  let ri = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(20, wallets.length) }, async () => {
-      while (ri < wallets.length) {
-        const id = wallets[ri++]!;
-        const r = await post(`${nextTarget()}/wallets/${id}/reconciliation`, "{}");
-        reconciliation.checked++;
-        if (r.status !== 200) {
-          reconciliation.failures++;
-          reconciliation.inconsistentWallets.push(id);
-        } else if ((r.json as { consistent?: boolean } | null)?.consistent !== true) {
-          reconciliation.inconsistent++;
-          reconciliation.inconsistentWallets.push(id);
-        }
-      }
-    }),
-  );
+  const reconciliation = await reconcileAll(wallets);
 
   // Agregação.
   const measured = samples.filter((s) => s.measured);
@@ -583,6 +615,276 @@ async function runProfile(def: Profile): Promise<ProfileResult> {
   return result;
 }
 
+// ------------------------------------------------------------------------------------------ sqs ingestion
+
+interface SqsResult {
+  profile: "sqs";
+  wallets: number;
+  /** Mensagens únicas (cada uma produz uma aposta). */
+  messages: number;
+  resends: number;
+  sent: number;
+  waves: number;
+  waveSize: number;
+  maxBacklog: number;
+  enqueueSeconds: number;
+  backpressureSeconds: number;
+  drainSeconds: number;
+  /** Do primeiro envio até a fila zerar, com contrapressão incluída. */
+  endToEndSeconds: number;
+  drained: boolean;
+  /** messages / endToEndSeconds. */
+  processedPerSecond: number;
+  maxWagerDepth: number;
+  dlqDepth: number;
+  duplicatesDelta: Record<string, number>;
+  transactionsByStatusDelta: Record<string, number>;
+  retriesByComponentDelta: Record<string, number>;
+  outboxDrain: { drained: boolean; seconds: number; lagSecondsAtEnd: number };
+  preSettle: { settled: boolean; seconds: number };
+  sink: { received: number; ratePerSecond: number; workers: number };
+  reconciliation: Reconciliation;
+}
+
+interface SqsMessage {
+  body: string;
+  groupId: string;
+  dedupId: string;
+}
+
+function isSqs(r: ProfileResult | SqsResult): r is SqsResult {
+  return r.profile === "sqs";
+}
+
+/** Envia um lote de até 10 entradas; reenvia só as que o SQS marcou como Failed, até 4 tentativas. */
+async function sendBatchWithRetry(sqs: SQSClient, queueUrl: string, batch: SqsMessage[]): Promise<void> {
+  let pending = batch;
+  for (let attempt = 1; pending.length > 0; attempt++) {
+    if (attempt > 4) throw new Error(`SendMessageBatch: ${pending.length} entrada(s) falharam após 4 tentativas`);
+    const res = await sqs.send(
+      new SendMessageBatchCommand({
+        QueueUrl: queueUrl,
+        Entries: pending.map((m, i) => ({
+          Id: String(i),
+          MessageBody: m.body,
+          MessageGroupId: m.groupId,
+          MessageDeduplicationId: m.dedupId,
+        })),
+      }),
+    );
+    const failed = new Set((res.Failed ?? []).map((f) => Number(f.Id)));
+    pending = pending.filter((_, i) => failed.has(i));
+    if (pending.length > 0) await Bun.sleep(100 * attempt);
+  }
+}
+
+/** Envia as mensagens em lotes de 10, com SQS_SEND_CONCURRENCY lotes em voo. */
+async function sendAll(sqs: SQSClient, queueUrl: string, messages: SqsMessage[]): Promise<void> {
+  const batches: SqsMessage[][] = [];
+  for (let i = 0; i < messages.length; i += 10) batches.push(messages.slice(i, i + 10));
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: SQS_SEND_CONCURRENCY }, async () => {
+      while (next < batches.length) await sendBatchWithRetry(sqs, queueUrl, batches[next++]!);
+    }),
+  );
+}
+
+/** Profundidade = visíveis + em voo (não visíveis). */
+async function queueDepth(sqs: SQSClient, queueUrl: string): Promise<number> {
+  const res = await sqs.send(
+    new GetQueueAttributesCommand({
+      QueueUrl: queueUrl,
+      AttributeNames: ["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible"],
+    }),
+  );
+  const a = res.Attributes ?? {};
+  return Number(a.ApproximateNumberOfMessages ?? 0) + Number(a.ApproximateNumberOfMessagesNotVisible ?? 0);
+}
+
+/**
+ * Perfil de entrada por SQS: BET em wager-transactions.fifo, sem HTTP de aposta. Cada mensagem única
+ * tem messageId e externalTransactionId próprios; 1 em cada SQS_RESEND_EVERY é reenviada com o mesmo
+ * messageId (e body) e outro MessageDeduplicationId, para exercitar a inbox do consumidor.
+ * Enfileira em ondas: antes de cada onda, espera a profundidade cair até SQS_MAX_BACKLOG.
+ */
+async function runSqsProfile(): Promise<SqsResult> {
+  const resends = Math.ceil(SQS_MESSAGES / SQS_RESEND_EVERY);
+  console.log(
+    `\n=== perfil sqs: ${SQS_WALLETS} wallet(s), ${SQS_MESSAGES} mensagens únicas + ${resends} reenvios, ` +
+      `ondas de ${SQS_WAVE_SIZE}, backlog máx ${SQS_MAX_BACKLOG}`,
+  );
+
+  const settleStart = performance.now();
+  const settled = await waitOutboxIdle(SETTLE_TIMEOUT_MS, 1000);
+  const settleSeconds = (performance.now() - settleStart) / 1000;
+
+  const sqs = new SQSClient({
+    endpoint: SQS_ENDPOINT,
+    region: "us-east-1",
+    credentials: { accessKeyId: "test", secretAccessKey: "test" },
+  });
+  let sampling = true;
+  let sampler: Promise<void> | undefined;
+  try {
+    const wagerUrl = (await sqs.send(new GetQueueUrlCommand({ QueueName: SQS_WAGER_QUEUE }))).QueueUrl!;
+    const dlqUrl = (await sqs.send(new GetQueueUrlCommand({ QueueName: SQS_WAGER_DLQ }))).QueueUrl!;
+
+    const sinkStart = performance.now();
+    const sinkBefore = sink?.received() ?? 0;
+    const created = await createWallets(SQS_WALLETS);
+    const wallets = created.map((w) => w.id);
+    const playerOf = new Map(created.map((w) => [w.id, w.playerId]));
+    const runId = crypto.randomUUID().slice(0, 8);
+    const before = await scrapeAll();
+
+    let maxDepth = 0;
+    const observeDepth = async (): Promise<number> => {
+      const d = await queueDepth(sqs, wagerUrl);
+      maxDepth = Math.max(maxDepth, d);
+      return d;
+    };
+    sampler = (async () => {
+      while (sampling) {
+        try {
+          await observeDepth();
+        } catch {
+          // falha transitória do endpoint: sem amostra neste intervalo
+        }
+        await Bun.sleep(1000);
+      }
+    })();
+
+    const messageFor = (i: number): SqsMessage[] => {
+      const externalId = `${runId}-${i}`;
+      const walletId = wallets[i % wallets.length]!;
+      const body = JSON.stringify({
+        messageId: externalId,
+        type: "WagerTransactionRequested",
+        occurredAt: new Date().toISOString(),
+        data: {
+          providerId: PROVIDER,
+          externalTransactionId: externalId,
+          playerId: playerOf.get(walletId),
+          walletId,
+          roundId: `round-${externalId}`,
+          gameId: "load-game",
+          kind: "BET",
+          money: { amount: "1.00", currency: CURRENCY },
+        },
+      });
+      const original: SqsMessage = { body, groupId: walletId, dedupId: externalId };
+      if (i % SQS_RESEND_EVERY !== 0) return [original];
+      return [original, { body, groupId: walletId, dedupId: `${externalId}-resend` }];
+    };
+
+    const enqueueStart = performance.now();
+    let sendMs = 0;
+    let backpressureMs = 0;
+    let waves = 0;
+    for (let start = 0; start < SQS_MESSAGES; start += SQS_WAVE_SIZE) {
+      const end = Math.min(SQS_MESSAGES, start + SQS_WAVE_SIZE);
+      const waitStart = performance.now();
+      if (start > 0) {
+        while ((await observeDepth()) > SQS_MAX_BACKLOG) {
+          if (performance.now() - waitStart > SQS_DRAIN_TIMEOUT_MS) {
+            throw new Error(`backlog acima de ${SQS_MAX_BACKLOG} por mais de ${SQS_DRAIN_TIMEOUT_MS / 1000}s`);
+          }
+          await Bun.sleep(500);
+        }
+      }
+      backpressureMs += performance.now() - waitStart;
+
+      const sendStart = performance.now();
+      const wave: SqsMessage[] = [];
+      for (let i = start; i < end; i++) wave.push(...messageFor(i));
+      await sendAll(sqs, wagerUrl, wave);
+      sendMs += performance.now() - sendStart;
+      waves++;
+      console.log(`    onda ${waves}: ${end}/${SQS_MESSAGES} únicas enviadas, profundidade máx até agora ${maxDepth}`);
+    }
+
+    const drainStart = performance.now();
+    let drained = false;
+    while (performance.now() - drainStart < SQS_DRAIN_TIMEOUT_MS) {
+      if ((await observeDepth()) === 0) {
+        drained = true;
+        break;
+      }
+      await Bun.sleep(500);
+    }
+    const drainSeconds = (performance.now() - drainStart) / 1000;
+    const endToEndSeconds = (performance.now() - enqueueStart) / 1000;
+
+    sampling = false;
+    await sampler;
+
+    const outboxStart = performance.now();
+    const outboxDrained = await waitOutboxIdle(DRAIN_TIMEOUT_MS, 500);
+    const outboxSeconds = (performance.now() - outboxStart) / 1000;
+    const lagAtEnd = await maxOutboxLag().catch(() => -1);
+    const after = await scrapeAll();
+    const dlqDepth = await queueDepth(sqs, dlqUrl);
+    const sinkReceived = (sink?.received() ?? 0) - sinkBefore;
+    const sinkSeconds = (performance.now() - sinkStart) / 1000;
+
+    const reconciliation = await reconcileAll(wallets);
+
+    return {
+      profile: "sqs",
+      wallets: wallets.length,
+      messages: SQS_MESSAGES,
+      resends,
+      sent: SQS_MESSAGES + resends,
+      waves,
+      waveSize: SQS_WAVE_SIZE,
+      maxBacklog: SQS_MAX_BACKLOG,
+      enqueueSeconds: round(sendMs / 1000),
+      backpressureSeconds: round(backpressureMs / 1000),
+      drainSeconds: round(drainSeconds),
+      endToEndSeconds: round(endToEndSeconds),
+      drained,
+      processedPerSecond: round(SQS_MESSAGES / endToEndSeconds),
+      maxWagerDepth: maxDepth,
+      dlqDepth,
+      duplicatesDelta: delta(sumBy(before, "duplicates_detected_total", "result"), sumBy(after, "duplicates_detected_total", "result")),
+      transactionsByStatusDelta: delta(sumBy(before, "wager_transactions_total", "status"), sumBy(after, "wager_transactions_total", "status")),
+      retriesByComponentDelta: delta(sumBy(before, "retries_total", "component"), sumBy(after, "retries_total", "component")),
+      outboxDrain: { drained: outboxDrained, seconds: round(outboxSeconds), lagSecondsAtEnd: round(lagAtEnd) },
+      preSettle: { settled, seconds: round(settleSeconds) },
+      sink: { received: sinkReceived, ratePerSecond: round(sinkReceived / sinkSeconds), workers: SINK_WORKERS },
+      reconciliation,
+    };
+  } finally {
+    sampling = false;
+    await sampler;
+    sqs.destroy();
+  }
+}
+
+function printSqsTable(results: SqsResult[]): void {
+  if (results.length === 0) return;
+  console.log("\n");
+  console.table(
+    results.map((r) => ({
+      perfil: r.profile,
+      "únicas": r.messages,
+      "enviadas": r.sent,
+      ondas: r.waves,
+      "enfileirar s": r.enqueueSeconds,
+      "contrapressão s": r.backpressureSeconds,
+      "drenagem s": r.drained ? r.drainSeconds : `>${SQS_DRAIN_TIMEOUT_MS / 1000}`,
+      "processadas/s": r.processedPerSecond,
+      "prof. máx": r.maxWagerDepth,
+      DLQ: r.dlqDepth,
+      "reconc. ruins": r.reconciliation.inconsistent + r.reconciliation.failures,
+    })),
+  );
+  for (const r of results) {
+    console.log(`[${r.profile}] duplicatas:`, r.duplicatesDelta, "| tx por status:", r.transactionsByStatusDelta, "| retries", r.retriesByComponentDelta);
+  }
+}
+
 // ------------------------------------------------------------------------------------------ output
 
 async function environment(): Promise<Record<string, unknown>> {
@@ -641,7 +943,9 @@ function printTable(results: ProfileResult[]): void {
 }
 
 async function main(): Promise<void> {
-  for (const p of PROFILES) if (!(p in PROFILE_DEFS)) throw new Error(`unknown profile "${p}" (use spread, hot, mixed)`);
+  for (const p of PROFILES) {
+    if (!(p in PROFILE_DEFS) && p !== "sqs") throw new Error(`unknown profile "${p}" (use spread, hot, mixed, sqs)`);
+  }
   if (TARGETS.length === 0) throw new Error("LOAD_TARGETS is empty");
 
   const startedAtIso = new Date().toISOString();
@@ -650,16 +954,23 @@ async function main(): Promise<void> {
   console.log("ambiente:", env);
 
   sink = await startSink();
-  const results: ProfileResult[] = [];
+  const results: Array<ProfileResult | SqsResult> = [];
   try {
-    for (const name of PROFILES) results.push(await runProfile(PROFILE_DEFS[name]!));
+    for (const name of PROFILES) {
+      results.push(name === "sqs" ? await runSqsProfile() : await runProfile(PROFILE_DEFS[name]!));
+    }
   } finally {
     await sink?.stop();
   }
 
-  printTable(results);
+  const httpResults = results.filter((r): r is ProfileResult => !isSqs(r));
+  const sqsResults = results.filter(isSqs);
+  if (httpResults.length > 0) printTable(httpResults);
+  printSqsTable(sqsResults);
 
-  const bad = results.filter((r) => r.reconciliation.inconsistent + r.reconciliation.failures > 0);
+  const bad = results.filter(
+    (r) => r.reconciliation.inconsistent + r.reconciliation.failures > 0 || (isSqs(r) && (!r.drained || r.dlqDepth > 0)),
+  );
   const out = {
     startedAt: startedAtIso,
     finishedAt: new Date().toISOString(),
@@ -677,8 +988,20 @@ async function main(): Promise<void> {
       drainTimeoutMs: DRAIN_TIMEOUT_MS,
       preProfileSettleTimeoutMs: SETTLE_TIMEOUT_MS,
       initialBalance: INITIAL_BALANCE,
+      sqs: {
+        endpoint: SQS_ENDPOINT,
+        messages: SQS_MESSAGES,
+        resendEvery: SQS_RESEND_EVERY,
+        waveSize: SQS_WAVE_SIZE,
+        maxBacklog: SQS_MAX_BACKLOG,
+        drainTimeoutMs: SQS_DRAIN_TIMEOUT_MS,
+        wallets: SQS_WALLETS,
+        sendConcurrency: SQS_SEND_CONCURRENCY,
+        batchSize: 10,
+      },
     },
     methodology: {
+      sqs: "enfileira BET em wager-transactions.fifo em ondas; antes de cada onda (exceto a primeira) espera a profundidade (visíveis + em voo) cair até maxBacklog; processadas/s = únicas / (primeiro envio até a fila zerar, com contrapressão)",
       model: "loop fechado: cada usuário virtual envia uma requisição, espera a resposta e envia a próxima; sem taxa alvo",
       warmup: "o aquecimento roda antes da janela medida; requisições iniciadas nele não entram nas latências nem no throughput",
       latency: "performance.now() ao redor do fetch, por requisição; percentis exatos por nearest-rank sobre o array ordenado",
@@ -699,7 +1022,7 @@ async function main(): Promise<void> {
   console.log(`\nresultado gravado em ${file}`);
 
   if (bad.length > 0) {
-    console.error(`\nFALHA: reconciliação divergente nos perfis: ${bad.map((b) => b.profile).join(", ")}`);
+    console.error(`\nFALHA: reconciliação divergente, fila não drenada ou DLQ não vazia nos perfis: ${bad.map((b) => b.profile).join(", ")}`);
     process.exit(1);
   }
 }

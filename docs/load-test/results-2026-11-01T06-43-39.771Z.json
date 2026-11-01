@@ -1,0 +1,103 @@
+{
+  "startedAt": "2026-11-01T06:37:47.995Z",
+  "finishedAt": "2026-11-01T06:43:39.770Z",
+  "environment": {
+    "cpuModel": "AMD Ryzen 5 5600X 6-Core Processor",
+    "cpuCount": 12,
+    "totalMemoryGiB": 15.91,
+    "platform": "win32 10.0.19045 (x64)",
+    "bunVersion": "1.4.4",
+    "dockerServerVersion": "29.9.2",
+    "loadGeneratorLocation": "mesma máquina que os containers (compete por CPU com app, Postgres e MiniStack)"
+  },
+  "parameters": {
+    "targets": [
+      "http://localhost:3001",
+      "http://localhost:3002",
+      "http://localhost:3003"
+    ],
+    "concurrency": 50,
+    "durationS": 30,
+    "warmupS": 5,
+    "profiles": [
+      "sqs"
+    ],
+    "sinkWorkers": 4,
+    "sinkEndpoint": "http://localhost:4566",
+    "eventsQueue": "wallet-events.fifo",
+    "requestTimeoutMs": 15000,
+    "drainTimeoutMs": 60000,
+    "preProfileSettleTimeoutMs": 900000,
+    "initialBalance": "1000000000.00",
+    "sqs": {
+      "endpoint": "http://localhost:4566",
+      "messages": 20000,
+      "resendEvery": 20,
+      "waveSize": 2000,
+      "maxBacklog": 2000,
+      "drainTimeoutMs": 600000,
+      "wallets": 200,
+      "sendConcurrency": 4,
+      "batchSize": 10
+    }
+  },
+  "methodology": {
+    "sqs": "enfileira BET em wager-transactions.fifo em ondas; antes de cada onda (exceto a primeira) espera a profundidade (visíveis + em voo) cair até maxBacklog; processadas/s = únicas / (primeiro envio até a fila zerar, com contrapressão)",
+    "model": "loop fechado: cada usuário virtual envia uma requisição, espera a resposta e envia a próxima; sem taxa alvo",
+    "warmup": "o aquecimento roda antes da janela medida; requisições iniciadas nele não entram nas latências nem no throughput",
+    "latency": "performance.now() ao redor do fetch, por requisição; percentis exatos por nearest-rank sobre o array ordenado",
+    "throughput": "requisições iniciadas na janela medida / duração da janela",
+    "classification": "200 e 202 sucesso; 409 e 422 rejeição de negócio esperada; 5xx, timeout, erro de rede e demais status são erro",
+    "outboxLag": "gauge outbox_lag_seconds lido em todos os alvos a cada 1 s (máximo entre alvos por amostra); drenagem = tempo até lag 0 em todos, no máximo 60 s",
+    "isolation": "antes de cada perfil o script espera o outbox_lag_seconds chegar a 0 (até 900 s), para o backlog de um perfil não contaminar o seguinte; o tempo fica em preSettle",
+    "correctness": "POST /wallets/:id/reconciliation em todas as wallets do perfil após a drenagem"
+  },
+  "results": [
+    {
+      "profile": "sqs",
+      "wallets": 200,
+      "messages": 20000,
+      "resends": 1000,
+      "sent": 21000,
+      "waves": 10,
+      "waveSize": 2000,
+      "maxBacklog": 2000,
+      "enqueueSeconds": 80.87,
+      "backpressureSeconds": 182.2,
+      "drainSeconds": 86,
+      "endToEndSeconds": 349.08,
+      "drained": true,
+      "processedPerSecond": 57.29,
+      "maxWagerDepth": 3820,
+      "dlqDepth": 0,
+      "duplicatesDelta": {
+        "message": 1000
+      },
+      "transactionsByStatusDelta": {
+        "PROCESSED": 20000
+      },
+      "retriesByComponentDelta": {},
+      "outboxDrain": {
+        "drained": true,
+        "seconds": 1.02,
+        "lagSecondsAtEnd": 0
+      },
+      "preSettle": {
+        "settled": true,
+        "seconds": 0
+      },
+      "sink": {
+        "received": 40600,
+        "ratePerSecond": 115.65,
+        "workers": 4
+      },
+      "reconciliation": {
+        "checked": 200,
+        "inconsistent": 0,
+        "failures": 0,
+        "inconsistentWallets": []
+      }
+    }
+  ],
+  "passed": true
+}
