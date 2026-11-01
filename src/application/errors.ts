@@ -68,3 +68,24 @@ export class NotFoundError extends Error {
 export function isLockConflict(e: unknown): boolean {
   return e instanceof ConcurrencyViolationError || (e instanceof TransientInfrastructureError && e.lockConflict);
 }
+
+/** Profundidade máxima de `cause` percorrida por `isUniqueViolation`. */
+const UNIQUE_VIOLATION_MAX_DEPTH = 6;
+
+/**
+ * 23505 vindo do driver, direto ou encadeado em `cause`. Com `constraints`, só conta a violação de uma
+ * dessas constraints. Estrutural: a camada de aplicação não importa o driver.
+ */
+export function isUniqueViolation(e: unknown, constraints?: string[]): boolean {
+  for (let cur: unknown = e, depth = 0; typeof cur === "object" && cur !== null && depth < UNIQUE_VIOLATION_MAX_DEPTH; depth++) {
+    const err = cur as { code?: unknown; constraint?: unknown; cause?: unknown };
+    if (
+      err.code === "23505" &&
+      (constraints === undefined || (typeof err.constraint === "string" && constraints.includes(err.constraint)))
+    ) {
+      return true;
+    }
+    cur = err.cause;
+  }
+  return false;
+}

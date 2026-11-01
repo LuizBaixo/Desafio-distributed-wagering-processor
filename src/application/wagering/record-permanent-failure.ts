@@ -1,3 +1,4 @@
+import { isUniqueViolation } from "../errors";
 import type { Clock } from "../ports/clock";
 import type { IdGenerator } from "../ports/id-generator";
 import type { Logger } from "../ports/logger";
@@ -22,16 +23,6 @@ export interface PermanentFailureContext {
 
 /** `no-wallet`: sem wallet a FK impede a linha; `exists`: a key (ou o id externo, ou a mensagem) já tem registro. */
 export type PermanentFailureResult = "recorded" | "exists" | "no-wallet";
-
-/** 23505 vindo do driver, direto ou encadeado em `cause`. Estrutural: esta camada não importa infraestrutura. */
-function isUniqueViolation(e: unknown): boolean {
-  for (let cur: unknown = e, depth = 0; typeof cur === "object" && cur !== null && depth < 4; depth++) {
-    const err = cur as { code?: unknown; cause?: unknown };
-    if (err.code === "23505") return true;
-    cur = err.cause;
-  }
-  return false;
-}
 
 /**
  * Grava a transação como `FAILED` (`INFRA_PERMANENT`) quando o consumidor desiste de uma mensagem por erro

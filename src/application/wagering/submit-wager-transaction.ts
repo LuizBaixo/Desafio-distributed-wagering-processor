@@ -1,4 +1,4 @@
-import { isLockConflict } from "../errors";
+import { isLockConflict, isUniqueViolation } from "../errors";
 import type { Clock } from "../ports/clock";
 import type { IdGenerator } from "../ports/id-generator";
 import type { Logger } from "../ports/logger";
@@ -27,18 +27,6 @@ export type SubmitResult = WagerOutcome | { kind: "duplicateMessage"; payloadMis
 /** Constraints cuja violação é uma corrida legítima de idempotência (Design §8, nota final). */
 const RACE_CONSTRAINTS = ["wager_tx_provider_idempotency_uq", "wager_tx_provider_external_uq"];
 const MAX_ATTEMPTS = 2;
-
-/** 23505 numa das constraints de corrida. Estrutural: o erro vem do driver, a camada não importa infraestrutura. */
-function isIdempotencyRace(e: unknown): boolean {
-  for (let cur: unknown = e, depth = 0; typeof cur === "object" && cur !== null && depth < 4; depth++) {
-    const err = cur as { code?: unknown; constraint?: unknown; cause?: unknown };
-    if (err.code === "23505" && typeof err.constraint === "string" && RACE_CONSTRAINTS.includes(err.constraint)) {
-      return true;
-    }
-    cur = err.cause;
-  }
-  return false;
-}
 
 export class SubmitWagerTransaction {
   constructor(
@@ -75,7 +63,7 @@ export class SubmitWagerTransaction {
       } catch (e) {
         // Corrida entre wallets diferentes com a mesma key (a wallet travada não as serializa):
         // o rollback desfez tudo, inclusive a inbox; reler agora cai em replay ou conflito.
-        if (!isIdempotencyRace(e) || attempt >= MAX_ATTEMPTS) {
+        if (!isUniqueViolation(e, RACE_CONSTRAINTS) || attempt >= MAX_ATTEMPTS) {
           if (isLockConflict(e)) this.metrics.lockConflict();
           throw e;
         }
