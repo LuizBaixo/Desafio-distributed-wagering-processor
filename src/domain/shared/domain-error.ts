@@ -19,6 +19,18 @@ export class InsufficientFundsError extends DomainError {
   readonly code = "INSUFFICIENT_FUNDS";
 }
 
+export class KindNotAllowedError extends DomainError {
+  readonly code = "KIND_NOT_ALLOWED";
+}
+
+export class MissingReferenceError extends DomainError {
+  readonly code = "MISSING_REFERENCE";
+}
+
+export class InvalidTransactionStateError extends DomainError {
+  readonly code = "INVALID_TRANSACTION_STATE";
+}
+
 export class UnbalancedLedgerEntryError extends DomainError {
   readonly code = "UNBALANCED_LEDGER_ENTRY";
 }

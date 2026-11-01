@@ -1,0 +1,21 @@
+/** Códigos estáveis e legíveis por máquina (Design §11). */
+export enum FailureCode {
+  InvalidPayload = "INVALID_PAYLOAD",
+  InvalidMoney = "INVALID_MONEY",
+  KindNotAllowed = "KIND_NOT_ALLOWED",
+  IdempotencyConflict = "IDEMPOTENCY_CONFLICT",
+  ExternalIdConflict = "EXTERNAL_ID_CONFLICT",
+  WalletNotFound = "WALLET_NOT_FOUND",
+  WalletPlayerMismatch = "WALLET_PLAYER_MISMATCH",
+  CurrencyMismatch = "CURRENCY_MISMATCH",
+  InsufficientFunds = "INSUFFICIENT_FUNDS",
+  ReversalInsufficientFunds = "REVERSAL_INSUFFICIENT_FUNDS",
+  ReferenceNotFound = "REFERENCE_NOT_FOUND",
+  ReferenceMismatch = "REFERENCE_MISMATCH",
+  ReferenceInvalidKind = "REFERENCE_INVALID_KIND",
+  ReferenceNotProcessed = "REFERENCE_NOT_PROCESSED",
+  ReferenceAlreadyReversed = "REFERENCE_ALREADY_REVERSED",
+  AmountMismatch = "AMOUNT_MISMATCH",
+  InfraUnavailable = "INFRA_UNAVAILABLE",
+  InfraPermanent = "INFRA_PERMANENT",
+}
