@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const APP_ROLES = ["api", "consumer", "outbox", "pending"] as const;
+export const APP_ROLES = ["api", "consumer", "outbox", "pending", "reconciler"] as const;
 export type AppRole = (typeof APP_ROLES)[number];
 
 export interface AppConfig {
@@ -12,6 +12,7 @@ export interface AppConfig {
   roles: Set<AppRole>;
   pending: { maxAttempts: number; pollMs: number };
   outbox: { pollMs: number; batchSize: number; sendBatch: number };
+  reconciliation: { intervalMs: number };
   faultInject?: "exit_after_commit";
   consumer: {
     concurrency: number;
@@ -40,6 +41,7 @@ const envSchema = z.object({
   FAULT_INJECT: z.enum(["exit_after_commit"]).optional(),
   PENDING_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
   PENDING_POLL_MS: z.coerce.number().int().positive().default(1000),
+  RECONCILE_INTERVAL_MS: z.coerce.number().int().positive().default(300_000),
   OUTBOX_POLL_MS: z.coerce.number().int().positive().default(500),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().positive().default(100),
   OUTBOX_SEND_BATCH: z.coerce.number().int().positive().max(10).default(10),
@@ -70,6 +72,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     roles: new Set(e.APP_ROLES),
     pending: { maxAttempts: e.PENDING_MAX_ATTEMPTS, pollMs: e.PENDING_POLL_MS },
     outbox: { pollMs: e.OUTBOX_POLL_MS, batchSize: e.OUTBOX_BATCH_SIZE, sendBatch: e.OUTBOX_SEND_BATCH },
+    reconciliation: { intervalMs: e.RECONCILE_INTERVAL_MS },
     consumer: {
       concurrency: e.CONSUMER_CONCURRENCY,
       shutdownGraceMs: e.SHUTDOWN_GRACE_MS,

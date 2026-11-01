@@ -25,12 +25,13 @@ Decisões, trade-offs e limitações do Distributed Wagering Processor. Setup e 
 
 ## 2. Processos e papéis
 
-Uma imagem, um código. `APP_ROLES` (lista separada por vírgula, `api,consumer,outbox,pending`) decide o que cada processo liga:
+Uma imagem, um código. `APP_ROLES` (lista separada por vírgula, `api,consumer,outbox,pending,reconciler`) decide o que cada processo liga:
 
 - `api`: rotas HTTP.
 - `consumer`: `WagerConsumer`, consumidor de `wager-transactions.fifo` (registrado pelo `MessagingModule`).
 - `outbox`: `OutboxPublisher`, publica em `wallet-events.fifo` (registrado pelo `OutboxModule`).
 - `pending`: `PendingReferenceWorker`, worker de referências pendentes.
+- `reconciler`: `ReconciliationWorker`, job periódico que reconcilia todas as wallets a cada `RECONCILE_INTERVAL_MS` (padrão 5 min). Cada ciclo pega o advisory lock `hashtext('reconciliation')` numa **conexão dedicada** (`pg.Client` fora do pool, `PgAdvisoryLock`) e a mantém até o fim do ciclo; quem não pega o lock pula o ciclo. Lock de sessão não pode ficar numa conexão do pool: ela volta ao pool a cada commit e o lock se perderia ou ficaria preso. O job lê as wallets em páginas de 100 ids e reconcilia uma por transação SQL, com o `FOR SHARE` de `ReconcileWallet`, então uma aposta na mesma wallet espera no máximo o tempo de uma conferência. Não liga no compose por padrão.
 
 Cada loop liga em `onApplicationBootstrap` só se o papel estiver em `APP_ROLES`, e para em `beforeApplicationShutdown`. O MikroORM fecha em `onApplicationShutdown`, que o Nest executa por último, então o trabalho em andamento termina com o banco ainda disponível. Antes, o ORM fechava em `onModuleDestroy`, que roda *antes* de `beforeApplicationShutdown`, e mensagens em andamento falhavam com `Unable to acquire a connection`.
 
@@ -254,7 +255,7 @@ Pontos em que o README deixou margem. Cada um tem teste.
 ## 16. Observabilidade
 
 - **Logs:** pino em JSON. Contexto via `AsyncLocalStorage` (`correlationId`, `messageId`, `transactionId`, `walletId`, `providerId`). Redaction de `*.money`, `*.amount`, `*.balance`, `req.body` e `req.headers.authorization`. Erros de 500 são logados com nome e stack, nunca com o body. Depois de cada commit sai uma linha `info` por resultado, com `transactionId`, `status`, `failureCode`, `kind`, `source` e `idempotentReplay`, sem valores monetários. O worker de pendentes loga cada resolução, e o publicador da outbox loga uma linha por lote não vazio (`claimed`, `published`, `failed`).
-- **Métricas** (prom-client, `GET /metrics`): `wager_transactions_total{status,kind}`, `duplicates_detected_total{source,result}`, `retries_total{component}`, `dlq_messages_total`, `lock_conflicts_total` (incrementada em `55P03` lock timeout, `40P01` deadlock, `40001` serialization failure e conflito de versão), `outbox_lag_seconds`, `processing_duration_seconds`, `wallet_lock_wait_seconds` (histograma tirado em cada `FOR UPDATE` da wallet, inclusive quando termina em erro), `reconciliation_mismatches_total`.
+- **Métricas** (prom-client, `GET /metrics`): `wager_transactions_total{status,kind}`, `duplicates_detected_total{source,result}`, `retries_total{component}`, `dlq_messages_total`, `lock_conflicts_total` (incrementada em `55P03` lock timeout, `40P01` deadlock, `40001` serialization failure e conflito de versão), `outbox_lag_seconds`, `processing_duration_seconds`, `wallet_lock_wait_seconds` (histograma tirado em cada `FOR UPDATE` da wallet, inclusive quando termina em erro), `reconciliation_mismatches_total`, `reconciliation_runs_total`, `reconciliation_wallets_checked_total` e `reconciliation_last_run_timestamp_seconds` (gauge, fim da última execução completa).
   - `duplicates_detected_total` tem o label `result` além de `source`. O Design §16 lista só `source`.
 - **Health:** `GET /health/live` responde só se o processo vive. `GET /health/ready` faz `SELECT 1` e `QueuePort.ping()` (`GetQueueAttributes` na fila principal); se qualquer um falhar, responde `503 INFRA_UNAVAILABLE`. Durante o shutdown, `/health/ready` responde `503 SHUTTING_DOWN` sem pingar nada, e `/health/live` segue `200` até o servidor fechar. O estado (`LifecycleState`) vira "desligando" no `onModuleDestroy`, que o Nest roda antes de `beforeApplicationShutdown`. O pool do Postgres do HealthController fecha só em `onApplicationShutdown`, o último gancho. Assim, até o pool fechar, a readiness já responde `SHUTTING_DOWN`, sem depender da ordem entre módulos. Consumidores e workers esperam em `beforeApplicationShutdown`, e a readiness segue `SHUTTING_DOWN` enquanto eles terminam.
 

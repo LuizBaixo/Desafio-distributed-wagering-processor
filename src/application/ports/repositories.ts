@@ -9,6 +9,8 @@ export interface WalletRepository {
   /** `23505` em (player_id, currency) vira `DuplicateWalletError`. */
   insert(w: Wallet): Promise<void>;
   findById(id: string): Promise<Wallet | null>;
+  /** Ids em ordem crescente, a partir do primeiro maior que `afterId` (ou do início, sem `afterId`). */
+  listIdsAfter(afterId: string | undefined, limit: number): Promise<string[]>;
   /** `SELECT ... FOR UPDATE`. */
   lockForUpdate(id: string): Promise<Wallet | null>;
   lockForShare(id: string): Promise<Wallet | null>;

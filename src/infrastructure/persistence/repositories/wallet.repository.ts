@@ -30,6 +30,14 @@ export class PgWalletRepository implements WalletRepository {
     return this.select(id, "");
   }
 
+  async listIdsAfter(afterId: string | undefined, limit: number): Promise<string[]> {
+    const rows =
+      afterId === undefined
+        ? await this.db.rows<{ id: string }>(`SELECT id FROM wallets ORDER BY id LIMIT ?`, [limit])
+        : await this.db.rows<{ id: string }>(`SELECT id FROM wallets WHERE id > ? ORDER BY id LIMIT ?`, [afterId, limit]);
+    return rows.map((r) => r.id);
+  }
+
   async lockForUpdate(id: string): Promise<Wallet | null> {
     const started = performance.now();
     try {

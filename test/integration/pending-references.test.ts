@@ -352,6 +352,7 @@ describe("correções: re-checagem no limite e isolamento de erro por item", () 
       observeProcessing() {},
       observeLockWait() {},
       reconciliationMismatch() {},
+      reconciliationRun() {},
     } as unknown as Metrics;
 
     const worker = new ReprocessPendingReferences(

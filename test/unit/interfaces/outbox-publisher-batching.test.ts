@@ -66,6 +66,7 @@ function fakeMetrics(retries: string[]): Metrics {
     setOutboxLag() {},
     observeProcessing() {},
     reconciliationMismatch() {},
+      reconciliationRun() {},
   } as unknown as Metrics;
 }
 

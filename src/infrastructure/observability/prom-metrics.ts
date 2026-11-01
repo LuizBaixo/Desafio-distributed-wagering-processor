@@ -66,6 +66,24 @@ export class PromMetrics implements Metrics {
     registers: [this.registry],
   });
 
+  private readonly reconciliationRuns = new Counter({
+    name: "reconciliation_runs_total",
+    help: "Execuções completas do job de reconciliação",
+    registers: [this.registry],
+  });
+
+  private readonly reconciliationChecked = new Counter({
+    name: "reconciliation_wallets_checked_total",
+    help: "Wallets conferidas pelo job de reconciliação",
+    registers: [this.registry],
+  });
+
+  private readonly reconciliationLastRun = new Gauge({
+    name: "reconciliation_last_run_timestamp_seconds",
+    help: "Fim da última execução completa do job de reconciliação (epoch, em segundos)",
+    registers: [this.registry],
+  });
+
   transaction(status: string, kind: string): void {
     this.transactions.inc({ status, kind });
   }
@@ -100,5 +118,11 @@ export class PromMetrics implements Metrics {
 
   reconciliationMismatch(): void {
     this.reconciliation.inc();
+  }
+
+  reconciliationRun(checked: number, finishedAtSeconds: number): void {
+    this.reconciliationRuns.inc();
+    this.reconciliationChecked.inc(checked);
+    this.reconciliationLastRun.set(finishedAtSeconds);
   }
 }

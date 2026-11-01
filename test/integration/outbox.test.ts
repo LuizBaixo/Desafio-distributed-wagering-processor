@@ -254,6 +254,7 @@ describe("publisher da outbox", () => {
       setOutboxLag() {},
       observeProcessing() {},
       reconciliationMismatch() {},
+      reconciliationRun() {},
     } as unknown as Metrics;
     const brokenQueue: QueuePort = {
       receive: async () => [],

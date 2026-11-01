@@ -13,6 +13,8 @@ export interface Metrics {
   setOutboxLag(seconds: number): void;
   observeProcessing(seconds: number, source: MetricSource): void;
   reconciliationMismatch(): void;
+  /** Fim de uma execução completa do job de reconciliação: `checked` wallets conferidas, em `finishedAtSeconds` (epoch). */
+  reconciliationRun(checked: number, finishedAtSeconds: number): void;
 }
 
 export const METRICS = Symbol("METRICS");
