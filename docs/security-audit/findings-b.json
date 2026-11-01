@@ -69,7 +69,9 @@
         "docker compose up falha com mensagem clara se POSTGRES_PASSWORD não estiver definido",
         "grep -rn 'POSTGRES_PASSWORD: postgres' docker-compose.yml não retorna nada"
       ],
-      "issueGroup": "credenciais-padrao-dev"
+      "issueGroup": "credenciais-padrao-dev",
+      "status": "corrigido",
+      "fixedIn": "71bff07"
     },
     {
       "id": "B-02",
@@ -88,7 +90,9 @@
         "compose de desenvolvimento exige as senhas por variável",
         "mikro-orm.config.ts não carrega fallback com credencial fora de localhost:5433"
       ],
-      "issueGroup": "credenciais-padrao-dev"
+      "issueGroup": "credenciais-padrao-dev",
+      "status": "corrigido",
+      "fixedIn": "71bff07"
     },
     {
       "id": "B-03",
@@ -126,7 +130,9 @@
         "login admin/admin retorna 401",
         "porta ligada a 127.0.0.1"
       ],
-      "issueGroup": "credenciais-padrao-dev"
+      "issueGroup": "credenciais-padrao-dev",
+      "status": "corrigido",
+      "fixedIn": "71bff07"
     },
     {
       "id": "B-05",
@@ -144,7 +150,9 @@
         "porta 4566 ligada a 127.0.0.1 no compose",
         "README separa explicitamente credenciais de emulador e de produção"
       ],
-      "issueGroup": "credenciais-padrao-dev"
+      "issueGroup": "credenciais-padrao-dev",
+      "status": "corrigido",
+      "fixedIn": "71bff07"
     },
     {
       "id": "B-06",
@@ -184,7 +192,9 @@
         "bloco permissions: contents: read presente",
         "runs-on com versão explícita"
       ],
-      "issueGroup": "supply-chain"
+      "issueGroup": "supply-chain",
+      "status": "corrigido",
+      "fixedIn": "71bff07"
     },
     {
       "id": "B-08",
@@ -202,7 +212,9 @@
         "docker run --rm <imagem> id mostra usuário não root",
         "imagens principais com @sha256"
       ],
-      "issueGroup": "supply-chain"
+      "issueGroup": "supply-chain",
+      "status": "corrigido",
+      "fixedIn": "71bff07"
     },
     {
       "id": "B-09",
@@ -220,7 +232,9 @@
         "portas 9090 e 16686 em 127.0.0.1",
         "/metrics inacessível pela porta pública da API"
       ],
-      "issueGroup": "credenciais-padrao-dev"
+      "issueGroup": "credenciais-padrao-dev",
+      "status": "corrigido",
+      "fixedIn": "71bff07"
     },
     {
       "id": "B-10",
