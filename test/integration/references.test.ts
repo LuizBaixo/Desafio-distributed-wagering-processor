@@ -5,7 +5,7 @@ import { assertLedgerConsistent } from "../helpers/assert-ledger-consistent";
 import { closePools, migrateUp, ownerPool, resetDb } from "../helpers/db";
 import { buildWagerCommand, createWalletDirect, type DirectWallet } from "../helpers/factories";
 import { postWager } from "../helpers/wager-http";
-import { startWageringTestApp } from "../helpers/wagering-app";
+import { startTestApp } from "../helpers/http";
 
 let baseUrl: string;
 let close: () => Promise<void>;
@@ -13,7 +13,7 @@ let wallet: DirectWallet;
 
 beforeAll(async () => {
   await migrateUp();
-  const app = await startWageringTestApp();
+  const app = await startTestApp();
   baseUrl = app.baseUrl;
   close = app.close;
 });
