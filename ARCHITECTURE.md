@@ -118,6 +118,7 @@ Erros de constraint são traduzidos no caso de uso: `23505` em `(player_id, curr
 - Mesma key, hash diferente: `IDEMPOTENCY_CONFLICT` (409), sem linha nova. A auditoria segue: log, métrica, evento `WagerTransactionRejected` e inbox na fila.
 - Mesmo `externalTransactionId`, key diferente: `EXTERNAL_ID_CONFLICT` (409). Para tentar de novo, o provedor precisa mandar um `externalTransactionId` novo.
 - Sem cache em memória. A garantia é o `UNIQUE` do banco.
+- **Decisão: cada conflito é auditado e pode amplificar a outbox.** Cada chamada em conflito (`IDEMPOTENCY_CONFLICT` ou `EXTERNAL_ID_CONFLICT`) emite um `WagerTransactionRejected`, por auditoria. Um provedor que reenvia em loop com payload divergente gera um evento na outbox por tentativa, e a outbox publica e retenta cada um. Não há limite de emissão por provedor. Se isso virar problema, o próximo passo é limitar ou agregar esses eventos, não remover a auditoria.
 
 ## 8. Máquina de estados de `WagerTransaction`
 
@@ -214,6 +215,7 @@ Quando a referência ainda não existe, a transação grava `PENDING_REFERENCE` 
 - **Publicação:** `MessageDeduplicationId = eventId` e `MessageGroupId = aggregateId`. Depois do envio, `published_at` é gravado em outra transação curta.
 - **Falha de envio:** `scheduleRetry` (backoff `min(2^attempts, 300)` s), libera o lease, incrementa `retries_total{component="outbox"}` e segue para a próxima mensagem do lote.
 - **Crash entre publicar e marcar:** o lease (30 s) expira e outra instância republica. Isso é at-least-once: o consumidor do evento deduplica por `eventId`, e o FIFO também deduplica dentro da janela de 5 minutos. Testes: publicadores concorrentes no mesmo processo e em 2 processos (C6, com 300 eventos, cada um publicado exatamente uma vez), e crash com lease de 1 s.
+- **Ordem por wallet: best-effort.** `MessageGroupId = aggregateId` dá ordem FIFO dentro do grupo no SQS, mas a ordem de publicação não é garantida. Falha de envio agenda retry e o lote segue, então a mensagem falha pode sair depois das seguintes; publishers concorrentes também podem reordenar. Consumidores de `WalletBalanceChanged` devem ordenar por `data.walletVersion`, não pela ordem de chegada.
 - **Lag:** `outbox_lag_seconds` é a idade do evento pendente mais antigo, atualizada a cada tick.
 - Eventos: `WagerTransactionProcessed`, `WagerTransactionRejected`, `WalletBalanceChanged` (só quando o saldo muda), `WagerTransactionPendingReference`, e `WalletCreated` (extra).
 - Envelope: classe abstrata `IntegrationEvent<T>` com `eventType` e `version` no tipo. `data` carrega `MoneyProps` (string), nunca `Money`.
