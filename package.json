@@ -54,5 +54,10 @@
     "configPaths": [
       "./mikro-orm.config.ts"
     ]
+  },
+  "overrides": {
+    "ajv": "8.20.0",
+    "js-yaml": "5.5.0",
+    "multer": "2.5.0"
   }
 }
