@@ -1,10 +1,10 @@
 import { Module, type DynamicModule } from "@nestjs/common";
 import { APP_FILTER } from "@nestjs/core";
 import { LoggerModule } from "nestjs-pino";
-import { APP_CONFIG, type AppConfig } from "./config/config";
-import { METRICS } from "./application/ports/metrics";
-import { PromMetrics } from "./infrastructure/observability/prom-metrics";
+import type { AppConfig } from "./config/config";
+import { ConfigModule } from "./config/config.module";
 import { createLogger } from "./infrastructure/observability/logger";
+import { PersistenceModule } from "./infrastructure/persistence/persistence.module";
 import { HealthController } from "./interfaces/http/health.controller";
 import { MetricsController } from "./interfaces/http/metrics.controller";
 import { ERROR_LOGGER, HttpErrorFilter } from "./interfaces/http/http-error.filter";
@@ -18,12 +18,11 @@ export class AppModule {
         LoggerModule.forRoot({
           pinoHttp: { logger: createLogger(), autoLogging: false },
         }),
+        ConfigModule.register(config),
+        PersistenceModule,
       ],
       controllers: [HealthController, MetricsController],
       providers: [
-        { provide: APP_CONFIG, useValue: config },
-        PromMetrics,
-        { provide: METRICS, useExisting: PromMetrics },
         { provide: ERROR_LOGGER, useFactory: () => createLogger() },
         { provide: APP_FILTER, useClass: HttpErrorFilter },
       ],
