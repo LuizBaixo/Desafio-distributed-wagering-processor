@@ -19,9 +19,13 @@ export interface WagerHarness {
 }
 
 /** Monta o caso de uso sobre a UnitOfWork real (PostgreSQL de teste, papel `wagering_app`). */
-export async function buildWagerHarness(wrapUow?: (uow: UnitOfWork) => UnitOfWork): Promise<WagerHarness> {
+export async function buildWagerHarness(
+  wrapUow?: (uow: UnitOfWork) => UnitOfWork,
+  opts: { lockTimeout?: string } = {},
+): Promise<WagerHarness> {
   const orm = await createAppOrm();
-  const uow = wrapUow ? wrapUow(new MikroUnitOfWork(orm.em)) : new MikroUnitOfWork(orm.em);
+  const base = new MikroUnitOfWork(orm.em, opts.lockTimeout);
+  const uow = wrapUow ? wrapUow(base) : base;
   const ids = new Uuid7Generator();
   const clock = new SystemClock();
   const metrics = new PromMetrics();

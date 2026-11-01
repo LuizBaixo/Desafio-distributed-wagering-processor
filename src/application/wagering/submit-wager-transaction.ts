@@ -1,3 +1,4 @@
+import { isLockConflict } from "../errors";
 import type { Clock } from "../ports/clock";
 import type { IdGenerator } from "../ports/id-generator";
 import type { Metrics } from "../ports/metrics";
@@ -56,7 +57,10 @@ export class SubmitWagerTransaction {
       } catch (e) {
         // Corrida entre wallets diferentes com a mesma key (a wallet travada não as serializa):
         // o rollback desfez tudo, inclusive a inbox; reler agora cai em replay ou conflito.
-        if (!isIdempotencyRace(e) || attempt >= MAX_ATTEMPTS) throw e;
+        if (!isIdempotencyRace(e) || attempt >= MAX_ATTEMPTS) {
+          if (isLockConflict(e)) this.metrics.lockConflict();
+          throw e;
+        }
       }
     }
 

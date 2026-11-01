@@ -9,15 +9,18 @@ import { PgWagerTransactionRepository } from "./repositories/wager-transaction.r
 import { PgWalletRepository } from "./repositories/wallet.repository";
 import { Db } from "./sql";
 
-const LOCK_TIMEOUT = "5s";
+const DEFAULT_LOCK_TIMEOUT = "5s";
 
 export class MikroUnitOfWork implements UnitOfWork {
-  constructor(private readonly em: EntityManager) {}
+  constructor(
+    private readonly em: EntityManager,
+    private readonly lockTimeout: string = DEFAULT_LOCK_TIMEOUT,
+  ) {}
 
   async run<T>(work: (scope: TransactionScope) => Promise<T>): Promise<T> {
     try {
       return await this.em.fork().transactional(async (tem) => {
-        await tem.execute(`SET LOCAL lock_timeout = '${LOCK_TIMEOUT}'`);
+        await tem.execute(`SET LOCAL lock_timeout = '${this.lockTimeout}'`);
         const db = new Db(tem);
         return work({
           wallets: new PgWalletRepository(db),

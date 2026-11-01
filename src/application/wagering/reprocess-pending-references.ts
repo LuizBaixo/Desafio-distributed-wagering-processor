@@ -1,3 +1,4 @@
+import { isLockConflict } from "../errors";
 import type { Clock } from "../ports/clock";
 import type { IdGenerator } from "../ports/id-generator";
 import type { UnitOfWork } from "../ports/unit-of-work";
@@ -50,6 +51,7 @@ export class ReprocessPendingReferences {
         // Um item com erro não derruba o lote. A linha volta sozinha quando o lease expirar.
         const errorName = err instanceof Error ? err.name : "UnknownError";
         this.logger.error({ transactionId: item.id, errorName }, "pending reference item failed");
+        if (isLockConflict(err)) this.metrics.lockConflict();
         this.metrics.retry("pending");
       }
     }

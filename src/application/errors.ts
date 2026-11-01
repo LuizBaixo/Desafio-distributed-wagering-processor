@@ -14,10 +14,13 @@ export class InvalidPayloadError extends Error {
 /** Falha transitória de infraestrutura (Postgres ou SQS indisponível, lock_timeout). HTTP 503 com Retry-After. */
 export class TransientInfrastructureError extends Error {
   readonly code = "INFRA_UNAVAILABLE";
+  /** `true` quando a causa é disputa de lock (lock_timeout, deadlock, serialization failure). */
+  readonly lockConflict: boolean;
 
-  constructor(message = "transient infrastructure failure") {
+  constructor(message = "transient infrastructure failure", opts: { lockConflict?: boolean } = {}) {
     super(message);
     this.name = "TransientInfrastructureError";
+    this.lockConflict = opts.lockConflict ?? false;
   }
 }
 
@@ -59,4 +62,9 @@ export class NotFoundError extends Error {
     super(message);
     this.name = "NotFoundError";
   }
+}
+
+/** Erro que representa disputa de lock: conta em `lock_conflicts_total`, uma vez por ocorrência. */
+export function isLockConflict(e: unknown): boolean {
+  return e instanceof ConcurrencyViolationError || (e instanceof TransientInfrastructureError && e.lockConflict);
 }

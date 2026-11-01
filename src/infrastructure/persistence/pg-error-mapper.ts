@@ -15,6 +15,9 @@ const TRANSIENT_CODES = new Set([
   "EPIPE",
 ]);
 
+/** Subconjunto de TRANSIENT_CODES que indica disputa de lock (alimenta lock_conflicts_total). */
+const LOCK_CONFLICT_CODES = new Set(["55P03", "40001", "40P01"]);
+
 const TRANSIENT_MESSAGES = [
   /connection terminated/i,
   /timeout exceeded when trying to connect/i,
@@ -37,7 +40,9 @@ export function mapPgError(e: unknown): Error {
   if (e instanceof TransientInfrastructureError) return e;
   const code = codeOf(e);
   if (code !== undefined && TRANSIENT_CODES.has(code)) {
-    return new TransientInfrastructureError(`database unavailable (${code})`);
+    return new TransientInfrastructureError(`database unavailable (${code})`, {
+      lockConflict: LOCK_CONFLICT_CODES.has(code),
+    });
   }
   if (e instanceof Error) {
     if (TRANSIENT_MESSAGES.some((re) => re.test(e.message)) || e.name === "KnexTimeoutError") {
