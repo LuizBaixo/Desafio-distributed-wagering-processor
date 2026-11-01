@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { INestApplication } from "@nestjs/common";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { InMemorySpanExporter, SimpleSpanProcessor, type ReadableSpan } from "@opentelemetry/sdk-trace-base";
@@ -143,4 +143,38 @@ describe("no-op", () => {
     expect(await NOOP_TRACING.withSpan("x", { a: 1 }, async (span) => (span.setAttribute("k", "v"), 42))).toBe(42);
     expect(getTracing()).not.toBe(NOOP_TRACING); // initTracing no beforeAll
   });
+});
+
+describe("final status and shutdown", () => {
+  test("a 400 response records http.status_code 400 on the http.request span", async () => {
+    const res = await fetch(`${app.baseUrl}/wagering/transactions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({ invalid: true }),
+    });
+    expect(res.status).toBe(400);
+
+    await waitFor(async () => spans("http.request").length > 0, { what: "http.request span" });
+    const http = spans("http.request");
+    expect(http[http.length - 1]!.attributes["http.status_code"]).toBe(400);
+  });
+
+  test("shutdown calls the exporter's shutdown (flush)", async () => {
+    const e = new InMemorySpanExporter();
+    const spy = spyOn(e, "shutdown");
+    const { shutdown } = await initTracing({ spanProcessors: [new SimpleSpanProcessor(e)] });
+    await shutdown();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  test("shutdown returns within 2 s even when the exporter never finishes", async () => {
+    const e = new InMemorySpanExporter();
+    spyOn(e, "shutdown").mockImplementation(() => new Promise<void>(() => {}));
+    const { shutdown } = await initTracing({ spanProcessors: [new SimpleSpanProcessor(e)] });
+    const t0 = performance.now();
+    await shutdown();
+    const elapsed = performance.now() - t0;
+    expect(elapsed).toBeGreaterThanOrEqual(1900);
+    expect(elapsed).toBeLessThan(2500);
+  }, 10_000);
 });

@@ -39,6 +39,9 @@ class OtelTracing implements Tracing {
   }
 }
 
+/** Teto do flush no shutdown (espera do exporter OTLP). */
+export const SHUTDOWN_TIMEOUT_MS = 2_000;
+
 export interface TracingOptions {
   serviceName?: string;
   /** Sobrepõe o exporter OTLP (usado nos testes, com um exporter em memória). */
@@ -61,7 +64,16 @@ export async function initTracing(options: TracingOptions = {}): Promise<{ shutd
   return {
     shutdown: async () => {
       setTracing(NOOP_TRACING);
-      await sdk.shutdown();
+      // Flush dos spans finais, com teto: um exporter preso não pode atrasar o encerramento.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, SHUTDOWN_TIMEOUT_MS);
+      });
+      try {
+        await Promise.race([sdk.shutdown().catch(() => undefined), timeout]);
+      } finally {
+        clearTimeout(timer);
+      }
     },
   };
 }
