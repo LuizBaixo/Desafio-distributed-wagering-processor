@@ -8,7 +8,9 @@ async function bootstrap(): Promise<void> {
   const config = loadConfig();
   const app = await NestFactory.create(AppModule.register(config), { bufferLogs: true });
   app.useLogger(app.get(Logger));
-  app.enableShutdownHooks();
+  // useProcessExit: depois dos hooks, sai com 0 (e dá flush no pino) em vez de reenviar o sinal
+  // ao próprio processo, o que terminaria com 143 e pareceria um shutdown abortado.
+  app.enableShutdownHooks(undefined, { useProcessExit: true });
   await app.listen(config.port, "0.0.0.0");
 }
 
