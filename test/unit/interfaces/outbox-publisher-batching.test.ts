@@ -209,3 +209,28 @@ describe("OutboxPublisher: envio em lote", () => {
     expect(published).toBe(10);
   });
 });
+
+describe("OutboxPublisher: agendamento após lote cheio", () => {
+  test("250 pendentes com batch 100 são publicados em menos de 1 s, sem esperar pollMs (10 s)", async () => {
+    const outbox = new FakeOutbox(makeMessages(250));
+    const queue = fakeQueue(async (_q, entries) => ({ ok: entries.map((e) => e.id), failed: [] }));
+    const pub = new OutboxPublisher(fakeUow(outbox), queue, clock, fakeMetrics([]), silent, {
+      queueName: "events.fifo",
+      pollMs: 10_000,
+      enabled: true,
+      batchSize: 100,
+    });
+
+    const start = performance.now();
+    pub.onApplicationBootstrap();
+    const deadline = start + 1000;
+    while (outbox.publishedMany.flat().length < 250 && performance.now() < deadline) {
+      await Bun.sleep(5);
+    }
+    const elapsed = performance.now() - start;
+    await pub.beforeApplicationShutdown();
+
+    expect(outbox.publishedMany.flat()).toHaveLength(250);
+    expect(elapsed).toBeLessThan(1000);
+  });
+});

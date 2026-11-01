@@ -133,7 +133,8 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
   onApplicationBootstrap(): void {
     if (!this.options.enabled) return;
     this.running = true;
-    this.schedule();
+    // Primeiro ciclo imediato: drena um backlog existente sem esperar pollMs.
+    this.schedule(0);
   }
 
   isRunning(): boolean {
@@ -149,21 +150,24 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
     this.running = false;
   }
 
-  private schedule(): void {
+  private schedule(delayMs: number = this.options.pollMs): void {
     if (this.stopping) return;
     this.timer = setTimeout(() => {
-      this.inFlight = this.cycle().finally(() => {
+      this.inFlight = this.cycle().then((published) => {
         this.inFlight = undefined;
-        this.schedule();
+        // Lote cheio indica backlog: o próximo ciclo sai já. Lote parcial ou vazio espera pollMs.
+        this.schedule(published >= (this.options.batchSize ?? DEFAULT_BATCH) ? 0 : this.options.pollMs);
       });
-    }, this.options.pollMs);
+    }, delayMs);
   }
 
-  private async cycle(): Promise<void> {
+  /** Nunca rejeita: falha do tick vira log e conta como zero publicados. */
+  private async cycle(): Promise<number> {
     try {
-      await this.tick({ shouldStop: () => this.stopping });
+      return await this.tick({ shouldStop: () => this.stopping });
     } catch (err) {
       this.logger.error({ errorName: errorName(err) }, "outbox publisher cycle failed");
+      return 0;
     }
   }
 }
