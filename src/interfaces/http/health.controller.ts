@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Res, type OnModuleDestroy } from "@nestjs/common";
+import { Controller, Get, Inject, Res, type OnApplicationShutdown } from "@nestjs/common";
 import { Pool } from "pg";
 import { APP_CONFIG, type AppConfig } from "../../config/config";
 import { TransientInfrastructureError } from "../../application/errors";
@@ -15,7 +15,7 @@ interface ResponseLike {
  * Durante o shutdown, readiness responde 503 SHUTTING_DOWN, e liveness segue 200 até o fim.
  */
 @Controller("health")
-export class HealthController implements OnModuleDestroy {
+export class HealthController implements OnApplicationShutdown {
   private readonly pool: Pool;
 
   constructor(
@@ -33,7 +33,9 @@ export class HealthController implements OnModuleDestroy {
     this.pool.on("error", () => undefined);
   }
 
-  async onModuleDestroy(): Promise<void> {
+  // Fecha por último (onApplicationShutdown), depois de todos os hooks de destroy e de shutdown.
+  // Assim, até o pool fechar, o LifecycleState já está marcado e a readiness responde SHUTTING_DOWN.
+  async onApplicationShutdown(): Promise<void> {
     await this.pool.end();
   }
 

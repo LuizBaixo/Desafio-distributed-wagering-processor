@@ -1,10 +1,9 @@
 import { Injectable, type OnModuleDestroy } from "@nestjs/common";
 
 /**
- * Estado de ciclo de vida do processo. Passa a "desligando" no gancho `onModuleDestroy`, que é o primeiro
- * do shutdown: o Nest roda todos os `onModuleDestroy` antes de qualquer `beforeApplicationShutdown`, e o
- * HealthController fecha o pool do Postgres no seu `onModuleDestroy`. Este módulo é importado pelo AppModule,
- * então o Nest o executa antes dele (módulos mais profundos primeiro). Ver ARCHITECTURE.md §16.
+ * Estado de ciclo de vida do processo. Passa a "desligando" no `onModuleDestroy`, antes de qualquer
+ * `beforeApplicationShutdown`. O pool do HealthController só fecha em `onApplicationShutdown`, então a
+ * readiness responde `SHUTTING_DOWN` antes de qualquer ping falhar. Ver ARCHITECTURE.md §16.
  */
 @Injectable()
 export class LifecycleState implements OnModuleDestroy {
