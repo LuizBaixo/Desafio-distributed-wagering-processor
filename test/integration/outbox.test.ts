@@ -40,11 +40,18 @@ afterAll(async () => {
   await closePools();
 });
 
-function publisherFor(uow: UnitOfWork, queue: QueuePort = container.get<QueuePort>(QUEUE_PORT), metrics?: Metrics, logger: Logger = silent): OutboxPublisher {
+function publisherFor(
+  uow: UnitOfWork,
+  queue: QueuePort = container.get<QueuePort>(QUEUE_PORT),
+  metrics?: Metrics,
+  logger: Logger = silent,
+  batching: { batchSize?: number; sendBatchSize?: number } = {},
+): OutboxPublisher {
   return new OutboxPublisher(uow, queue, container.get<Clock>(CLOCK), metrics ?? container.get<Metrics>(METRICS), logger, {
     queueName: "wallet-events.fifo",
     pollMs: 10,
     enabled: false,
+    ...batching,
   });
 }
 
@@ -151,6 +158,32 @@ describe("publisher da outbox", () => {
     }
   });
 
+  test("200 eventos e um tick com OUTBOX_BATCH_SIZE=100 publicam 100, todos distintos por eventId na fila", async () => {
+    const aggregate = crypto.randomUUID();
+    await seedOutbox(200, aggregate);
+    const publisher = publisherFor(container.get<UnitOfWork>(UNIT_OF_WORK), undefined, undefined, silent, {
+      batchSize: 100,
+      sendBatchSize: 10,
+    });
+
+    expect(await publisher.tick()).toBe(100);
+
+    const { rows } = await ownerPool().query<{ pending: number; published: number }>(
+      `SELECT count(*) FILTER (WHERE published_at IS NULL)::int AS pending,
+              count(*) FILTER (WHERE published_at IS NOT NULL)::int AS published
+         FROM outbox_messages WHERE aggregate_id = $1`,
+      [aggregate],
+    );
+    expect(rows[0]).toEqual({ pending: 100, published: 100 });
+
+    const ids = (await receiveAll(EVENTS_QUEUE, 1))
+      .map((m) => JSON.parse(m.body) as { eventId: string; aggregateId: string })
+      .filter((b) => b.aggregateId === aggregate)
+      .map((b) => b.eventId);
+    expect(ids).toHaveLength(100);
+    expect(new Set(ids).size).toBe(100);
+  });
+
   test("crash entre publicar e marcar: lease curto expira e outro publisher republica; consumidor deduplica por eventId", async () => {
     const aggregate = crypto.randomUUID();
     const eventId = (await seedOutbox(1, aggregate, "CrashEvent"))[0]!;
@@ -168,8 +201,9 @@ describe("publisher da outbox", () => {
               claimDue: scope.outbox.claimDue.bind(scope.outbox),
               release: scope.outbox.release.bind(scope.outbox),
               oldestPendingAgeSeconds: scope.outbox.oldestPendingAgeSeconds.bind(scope.outbox),
-              markPublished: async () => {
-                throw new Error("simulated crash before markPublished");
+              markPublished: scope.outbox.markPublished.bind(scope.outbox),
+              markPublishedMany: async () => {
+                throw new Error("simulated crash before markPublishedMany");
               },
             },
           }),
@@ -228,6 +262,9 @@ describe("publisher da outbox", () => {
       send: async () => {
         throw new Error("endpoint SQS errado");
       },
+      sendBatch: async () => {
+        throw new Error("endpoint SQS errado");
+      },
       ping: async () => {},
     };
 
@@ -242,6 +279,34 @@ describe("publisher da outbox", () => {
     expect(rows[0]!.published_at).toBeNull();
     expect(rows[0]!.next.getTime()).toBeGreaterThan(Date.now() - 1000);
     expect(retries).toEqual(["outbox"]);
+  });
+
+  test("SqsQueue.sendBatch: mais de 10 entradas lança; corpo acima de 256 KiB vira failed BODY_TOO_LARGE sem travar o lote", async () => {
+    const queue = container.get<QueuePort>(QUEUE_PORT);
+    const group = crypto.randomUUID();
+    const entry = (body: string) => ({ id: crypto.randomUUID(), body, groupId: group, dedupId: crypto.randomUUID() });
+
+    await expect(queue.sendBatch("wallet-events.fifo", Array.from({ length: 11 }, () => entry("{}")))).rejects.toThrow();
+
+    const small = entry(JSON.stringify({ eventId: "small", aggregateId: group }));
+    const big = entry("x".repeat(262_145));
+    const result = await queue.sendBatch("wallet-events.fifo", [small, big]);
+
+    expect(result.ok).toEqual([small.id]);
+    expect(result.failed).toEqual([{ id: big.id, code: "BODY_TOO_LARGE" }]);
+    const received = (await receiveAll(EVENTS_QUEUE, 1)).filter((m) => m.body.includes(group));
+    expect(received).toHaveLength(1);
+  });
+
+  test("markPublishedMany marca só pendentes e devolve as linhas afetadas", async () => {
+    const aggregate = crypto.randomUUID();
+    const ids = await seedOutbox(3, aggregate);
+    const uow = container.get<UnitOfWork>(UNIT_OF_WORK);
+    const at = new Date();
+
+    expect(await uow.run((s) => s.outbox.markPublishedMany([ids[0]!, ids[1]!], at))).toBe(2);
+    expect(await uow.run((s) => s.outbox.markPublishedMany(ids, at))).toBe(1);
+    expect(await uow.run((s) => s.outbox.markPublishedMany([], at))).toBe(0);
   });
 
   test("loop não liga sem o papel outbox (APP_ROLES padrão = api)", () => {

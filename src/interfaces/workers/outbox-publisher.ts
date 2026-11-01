@@ -2,8 +2,9 @@ import type { BeforeApplicationShutdown, OnApplicationBootstrap } from "@nestjs/
 import type { Clock } from "../../application/ports/clock";
 import type { Logger } from "../../application/ports/logger";
 import type { Metrics } from "../../application/ports/metrics";
-import type { QueuePort } from "../../application/ports/queue";
+import type { BatchEntry, BatchResult, QueuePort } from "../../application/ports/queue";
 import type { UnitOfWork } from "../../application/ports/unit-of-work";
+import type { OutboxMessage } from "../../domain/messaging/outbox-message";
 
 export interface OutboxPublisherOptions {
   /** Fila de destino (`wallet-events.fifo`). */
@@ -12,21 +13,26 @@ export interface OutboxPublisherOptions {
   pollMs: number;
   /** Só liga o loop com o papel `outbox` em APP_ROLES. */
   enabled: boolean;
-  /** Tamanho do lote por claim (Design §14: 50). */
+  /** Tamanho do claim (OUTBOX_BATCH_SIZE). */
   batchSize?: number;
+  /** Entradas por `SendMessageBatch` (OUTBOX_SEND_BATCH, no máximo 10). */
+  sendBatchSize?: number;
   /** Lease padrão do claim (Design §14: 30 s). `tick({ leaseSeconds })` sobrescreve. */
   leaseSeconds?: number;
 }
 
-const DEFAULT_BATCH = 50;
+const DEFAULT_BATCH = 100;
+const DEFAULT_SEND_BATCH = 10;
+const MAX_SEND_BATCH = 10;
 const DEFAULT_LEASE_SECONDS = 30;
 
 /**
  * Publica a outbox na fila de eventos (Design §14).
  *
- * Cada `tick`: claim do lote com lease (transação curta), depois send de cada mensagem seguido de
- * markPublished. Falha de send: `scheduleRetry` + `release`, métrica `retry('outbox')`, e o lote segue.
- * Crash entre send e markPublished: o lease expira e outra instância republica (at-least-once);
+ * Cada `tick`: claim com lease (transação curta), divisão em lotes de até 10 e, por lote, um
+ * `SendMessageBatch` seguido de uma única transação com `markPublishedMany` (enviados) e `release`
+ * (falhos). Falha de entrada: `scheduleRetry` + `release`, métrica `retry('outbox')`, e os outros lotes
+ * seguem. Crash entre send e mark: o lease expira e outra instância republica (at-least-once);
  * o MessageDeduplicationId = eventId e o consumidor deduplicam.
  */
 export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicationShutdown {
@@ -54,37 +60,15 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
       scope.outbox.claimDue(this.options.batchSize ?? DEFAULT_BATCH, lease, now),
     );
 
+    const sendSize = Math.min(this.options.sendBatchSize ?? DEFAULT_SEND_BATCH, MAX_SEND_BATCH);
     let published = 0;
     let failed = 0;
-    for (const msg of batch) {
+    for (let from = 0; from < batch.length; from += sendSize) {
       if (shouldStop()) break;
-
-      try {
-        await this.queue.send(this.options.queueName, JSON.stringify(msg.payload), {
-          groupId: msg.aggregateId,
-          dedupId: msg.id,
-        });
-      } catch (err) {
-        // Falha de envio: agenda nova tentativa e segue para a próxima mensagem do lote.
-        msg.scheduleRetry(now);
-        try {
-          await this.uow.run((scope) => scope.outbox.release(msg));
-        } catch (releaseErr) {
-          this.logger.error({ outboxId: msg.id, errorName: errorName(releaseErr) }, "outbox release failed");
-        }
-        failed++;
-        this.metrics.retry("outbox");
-        this.logger.error({ outboxId: msg.id, errorName: errorName(err) }, "outbox publish failed");
-        continue;
-      }
-
-      try {
-        await this.uow.run((scope) => scope.outbox.markPublished(msg.id, this.clock.now()));
-        published++;
-      } catch (err) {
-        // Enviado mas não marcado: o lease expira e a mensagem é republicada (at-least-once).
-        this.logger.error({ outboxId: msg.id, errorName: errorName(err) }, "outbox mark failed");
-      }
+      const chunk = batch.slice(from, from + sendSize);
+      const result = await this.publishChunk(chunk, now);
+      published += result.published;
+      failed += result.failed;
     }
 
     if (batch.length > 0) {
@@ -94,6 +78,56 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
     const lag = await this.uow.run((scope) => scope.outbox.oldestPendingAgeSeconds(this.clock.now()));
     this.metrics.setOutboxLag(lag);
     return published;
+  }
+
+  /**
+   * Envia um lote (no máximo 10) e fecha o resultado em uma única transação: `markPublishedMany` nos
+   * enviados e `release` nos que falharam. Só o que o SQS confirmou é marcado como publicado.
+   */
+  private async publishChunk(chunk: OutboxMessage[], now: Date): Promise<{ published: number; failed: number }> {
+    const entries: BatchEntry[] = chunk.map((msg) => ({
+      id: msg.id,
+      body: JSON.stringify(msg.payload),
+      groupId: msg.aggregateId,
+      dedupId: msg.id,
+    }));
+
+    let result: BatchResult;
+    try {
+      result = await this.queue.sendBatch(this.options.queueName, entries);
+    } catch (err) {
+      // Chamada inteira falhou: nenhuma entrada foi confirmada.
+      this.logger.error({ batchSize: chunk.length, errorName: errorName(err) }, "outbox publish failed");
+      result = { ok: [], failed: chunk.map((m) => ({ id: m.id, code: errorName(err) })) };
+    }
+
+    const okIds = new Set(result.ok);
+    const sent = chunk.filter((m) => okIds.has(m.id));
+    // Qualquer entrada que o SQS não confirmou volta para retry, inclusive as que ele omitiu.
+    const retry = chunk.filter((m) => !okIds.has(m.id));
+    for (const msg of retry) msg.scheduleRetry(now);
+    for (const f of result.failed) {
+      this.logger.error({ outboxId: f.id, code: f.code }, "outbox publish failed");
+    }
+
+    try {
+      await this.uow.run(async (scope) => {
+        if (sent.length > 0) {
+          await scope.outbox.markPublishedMany(
+            sent.map((m) => m.id),
+            this.clock.now(),
+          );
+        }
+        for (const msg of retry) await scope.outbox.release(msg);
+      });
+    } catch (err) {
+      // Enviado mas não marcado (ou retry não gravado): o lease expira e a mensagem é reprocessada (at-least-once).
+      this.logger.error({ batchSize: chunk.length, errorName: errorName(err) }, "outbox mark failed");
+      return { published: 0, failed: retry.length };
+    }
+
+    for (let i = 0; i < retry.length; i++) this.metrics.retry("outbox");
+    return { published: sent.length, failed: retry.length };
   }
 
   onApplicationBootstrap(): void {

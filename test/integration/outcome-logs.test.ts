@@ -148,10 +148,12 @@ describe("pending worker outcome logs", () => {
 
 describe("outbox publisher batch log", () => {
   test("one line per non-empty batch with published and failed counts", async () => {
-    let n = 0;
     const queue = {
-      async send() {
-        if (n++ === 1) throw new Error("sqs down");
+      async sendBatch(_queue: string, entries: Array<{ id: string }>) {
+        return {
+          ok: entries.filter((_, i) => i !== 1).map((e) => e.id),
+          failed: entries.filter((_, i) => i === 1).map((e) => ({ id: e.id, code: "InternalError" })),
+        };
       },
     } as unknown as QueuePort;
     for (let i = 0; i < 3; i++) {
@@ -175,10 +177,12 @@ describe("outbox publisher batch log", () => {
   });
 
   test("batch line carries claimed, published and failed", async () => {
-    let n = 0;
     const queue = {
-      async send() {
-        if (n++ === 1) throw new Error("sqs down");
+      async sendBatch(_queue: string, entries: Array<{ id: string }>) {
+        return {
+          ok: entries.filter((_, i) => i !== 1).map((e) => e.id),
+          failed: entries.filter((_, i) => i === 1).map((e) => ({ id: e.id, code: "InternalError" })),
+        };
       },
     } as unknown as QueuePort;
     for (let i = 0; i < 3; i++) {

@@ -1,0 +1,257 @@
+{
+  "startedAt": "2026-11-01T05:52:07.533Z",
+  "finishedAt": "2026-11-01T06:06:08.457Z",
+  "environment": {
+    "cpuModel": "AMD Ryzen 5 5600X 6-Core Processor",
+    "cpuCount": 12,
+    "totalMemoryGiB": 15.91,
+    "platform": "win32 10.0.19045 (x64)",
+    "bunVersion": "1.4.4",
+    "dockerServerVersion": "29.9.2",
+    "loadGeneratorLocation": "mesma máquina que os containers (compete por CPU com app, Postgres e MiniStack)"
+  },
+  "parameters": {
+    "targets": [
+      "http://localhost:3001",
+      "http://localhost:3002",
+      "http://localhost:3003"
+    ],
+    "concurrency": 50,
+    "durationS": 30,
+    "warmupS": 5,
+    "profiles": [
+      "spread",
+      "hot",
+      "mixed"
+    ],
+    "requestTimeoutMs": 15000,
+    "drainTimeoutMs": 60000,
+    "preProfileSettleTimeoutMs": 900000,
+    "initialBalance": "1000000000.00"
+  },
+  "methodology": {
+    "model": "loop fechado: cada usuário virtual envia uma requisição, espera a resposta e envia a próxima; sem taxa alvo",
+    "warmup": "o aquecimento roda antes da janela medida; requisições iniciadas nele não entram nas latências nem no throughput",
+    "latency": "performance.now() ao redor do fetch, por requisição; percentis exatos por nearest-rank sobre o array ordenado",
+    "throughput": "requisições iniciadas na janela medida / duração da janela",
+    "classification": "200 e 202 sucesso; 409 e 422 rejeição de negócio esperada; 5xx, timeout, erro de rede e demais status são erro",
+    "outboxLag": "gauge outbox_lag_seconds lido em todos os alvos a cada 1 s (máximo entre alvos por amostra); drenagem = tempo até lag 0 em todos, no máximo 60 s",
+    "isolation": "antes de cada perfil o script espera o outbox_lag_seconds chegar a 0 (até 900 s), para o backlog de um perfil não contaminar o seguinte; o tempo fica em preSettle",
+    "correctness": "POST /wallets/:id/reconciliation em todas as wallets do perfil após a drenagem"
+  },
+  "results": [
+    {
+      "profile": "spread",
+      "wallets": 200,
+      "concurrency": 50,
+      "warmupS": 5,
+      "durationS": 30,
+      "requests": 31429,
+      "warmupRequests": 4515,
+      "throughputRps": 1047.63,
+      "latencyMs": {
+        "mean": 47.69,
+        "p50": 45.6,
+        "p95": 90.93,
+        "p99": 117.82,
+        "max": 215.69
+      },
+      "outcomes": {
+        "ok": 31429,
+        "rejected": 0,
+        "error": 0,
+        "errorRate": 0
+      },
+      "byStatus": {
+        "200": 31429
+      },
+      "byFailureCode": {},
+      "errors": {
+        "http5xx": 0,
+        "timeout": 0,
+        "network": 0,
+        "otherHttp": 0
+      },
+      "replays": {
+        "sent": 0,
+        "flaggedIdempotentReplay": 0
+      },
+      "server": {
+        "note": "deltas cobrem o perfil inteiro (aquecimento + janela medida + requisições em voo no fim), não só a janela medida",
+        "lockConflictsDelta": 0,
+        "transactionsByStatusDelta": {
+          "PROCESSED": 35944
+        },
+        "transactionsByKindDelta": {
+          "BET": 35944
+        },
+        "retriesByComponentDelta": {},
+        "duplicatesDelta": {}
+      },
+      "outboxLagSeconds": {
+        "samples": 35,
+        "max": 29.49,
+        "p95": 28.55
+      },
+      "outboxDrain": {
+        "drained": false,
+        "seconds": 60.48,
+        "lagSecondsAtEnd": 83.25
+      },
+      "preSettle": {
+        "settled": true,
+        "seconds": 0.01
+      },
+      "reconciliation": {
+        "checked": 200,
+        "inconsistent": 0,
+        "failures": 0,
+        "inconsistentWallets": []
+      }
+    },
+    {
+      "profile": "hot",
+      "wallets": 1,
+      "concurrency": 50,
+      "warmupS": 5,
+      "durationS": 30,
+      "requests": 7557,
+      "warmupRequests": 1294,
+      "throughputRps": 251.9,
+      "latencyMs": {
+        "mean": 198.09,
+        "p50": 231.53,
+        "p95": 375.19,
+        "p99": 474.97,
+        "max": 625.04
+      },
+      "outcomes": {
+        "ok": 7557,
+        "rejected": 0,
+        "error": 0,
+        "errorRate": 0
+      },
+      "byStatus": {
+        "200": 7557
+      },
+      "byFailureCode": {},
+      "errors": {
+        "http5xx": 0,
+        "timeout": 0,
+        "network": 0,
+        "otherHttp": 0
+      },
+      "replays": {
+        "sent": 0,
+        "flaggedIdempotentReplay": 0
+      },
+      "server": {
+        "note": "deltas cobrem o perfil inteiro (aquecimento + janela medida + requisições em voo no fim), não só a janela medida",
+        "lockConflictsDelta": 0,
+        "transactionsByStatusDelta": {
+          "PROCESSED": 8851
+        },
+        "transactionsByKindDelta": {
+          "BET": 8851
+        },
+        "retriesByComponentDelta": {},
+        "duplicatesDelta": {}
+      },
+      "outboxLagSeconds": {
+        "samples": 36,
+        "max": 30.02,
+        "p95": 28.42
+      },
+      "outboxDrain": {
+        "drained": false,
+        "seconds": 60.15,
+        "lagSecondsAtEnd": 78.81
+      },
+      "preSettle": {
+        "settled": true,
+        "seconds": 467.01
+      },
+      "reconciliation": {
+        "checked": 1,
+        "inconsistent": 0,
+        "failures": 0,
+        "inconsistentWallets": []
+      }
+    },
+    {
+      "profile": "mixed",
+      "wallets": 200,
+      "concurrency": 50,
+      "warmupS": 5,
+      "durationS": 30,
+      "requests": 32345,
+      "warmupRequests": 4892,
+      "throughputRps": 1078.17,
+      "latencyMs": {
+        "mean": 46.36,
+        "p50": 42.77,
+        "p95": 93.76,
+        "p99": 115.64,
+        "max": 211.8
+      },
+      "outcomes": {
+        "ok": 32345,
+        "rejected": 0,
+        "error": 0,
+        "errorRate": 0
+      },
+      "byStatus": {
+        "200": 32345
+      },
+      "byFailureCode": {},
+      "errors": {
+        "http5xx": 0,
+        "timeout": 0,
+        "network": 0,
+        "otherHttp": 0
+      },
+      "replays": {
+        "sent": 2883,
+        "flaggedIdempotentReplay": 2883
+      },
+      "server": {
+        "note": "deltas cobrem o perfil inteiro (aquecimento + janela medida + requisições em voo no fim), não só a janela medida",
+        "lockConflictsDelta": 0,
+        "transactionsByStatusDelta": {
+          "PROCESSED": 33896
+        },
+        "transactionsByKindDelta": {
+          "BET": 16960,
+          "LOSS": 5135,
+          "WIN": 8372,
+          "REFUND": 3429
+        },
+        "retriesByComponentDelta": {},
+        "duplicatesDelta": {
+          "replay": 3341
+        }
+      },
+      "outboxLagSeconds": {
+        "samples": 35,
+        "max": 30.35,
+        "p95": 30.35
+      },
+      "outboxDrain": {
+        "drained": false,
+        "seconds": 60.48,
+        "lagSecondsAtEnd": 90.63
+      },
+      "preSettle": {
+        "settled": true,
+        "seconds": 86.18
+      },
+      "reconciliation": {
+        "checked": 200,
+        "inconsistent": 0,
+        "failures": 0,
+        "inconsistentWallets": []
+      }
+    }
+  ],
+  "passed": true
+}

@@ -5,10 +5,11 @@ import {
   GetQueueUrlCommand,
   ReceiveMessageCommand,
   SQSClient,
+  SendMessageBatchCommand,
   SendMessageCommand,
 } from "@aws-sdk/client-sqs";
 import { TransientInfrastructureError } from "../../application/errors";
-import type { QueueMessage, QueuePort, SendOptions } from "../../application/ports/queue";
+import type { BatchEntry, BatchResult, QueueMessage, QueuePort, SendOptions } from "../../application/ports/queue";
 
 export interface SqsQueueOptions {
   endpoint: string;
@@ -18,6 +19,9 @@ export interface SqsQueueOptions {
   /** `VisibilityTimeout` pedido em cada ReceiveMessage; sem valor, vale o da fila. */
   visibilityTimeoutSeconds?: number;
 }
+
+const MAX_BATCH_ENTRIES = 10;
+const MAX_BODY_BYTES = 262_144;
 
 /** Adaptador SQS da porta de fila. Resolve e guarda em cache a URL de cada fila por nome. */
 export class SqsQueue implements QueuePort {
@@ -88,6 +92,43 @@ export class SqsQueue implements QueuePort {
         }),
       )
       .catch(rethrow);
+  }
+
+  async sendBatch(queue: string, entries: BatchEntry[]): Promise<BatchResult> {
+    if (entries.length > MAX_BATCH_ENTRIES) {
+      throw new Error(`sendBatch accepts at most ${MAX_BATCH_ENTRIES} entries, got ${entries.length}`);
+    }
+    const ok: string[] = [];
+    const failed: BatchResult["failed"] = [];
+    const sendable: Array<{ index: number; entry: BatchEntry }> = [];
+    entries.forEach((entry, index) => {
+      if (Buffer.byteLength(entry.body, "utf8") > MAX_BODY_BYTES) failed.push({ id: entry.id, code: "BODY_TOO_LARGE" });
+      else sendable.push({ index, entry });
+    });
+    if (sendable.length === 0) return { ok, failed };
+
+    const QueueUrl = await this.url(queue);
+    const res = await this.client
+      .send(
+        new SendMessageBatchCommand({
+          QueueUrl,
+          Entries: sendable.map(({ index, entry }) => ({
+            Id: String(index),
+            MessageBody: entry.body,
+            MessageGroupId: entry.groupId,
+            MessageDeduplicationId: entry.dedupId,
+          })),
+        }),
+      )
+      .catch(rethrow);
+
+    const failedIndexes = new Map((res.Failed ?? []).map((f) => [f.Id ?? "", f.Code ?? "UNKNOWN"]));
+    for (const { index, entry } of sendable) {
+      const code = failedIndexes.get(String(index));
+      if (code === undefined) ok.push(entry.id);
+      else failed.push({ id: entry.id, code });
+    }
+    return { ok, failed };
   }
 
   async ping(): Promise<void> {

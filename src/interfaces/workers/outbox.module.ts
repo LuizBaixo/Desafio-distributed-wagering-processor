@@ -31,6 +31,8 @@ import { OutboxPublisher } from "./outbox-publisher";
           queueName: config.queues.events,
           pollMs: config.outbox.pollMs,
           enabled: config.roles.has("outbox"),
+          batchSize: config.outbox.batchSize,
+          sendBatchSize: config.outbox.sendBatch,
         }),
     },
   ],

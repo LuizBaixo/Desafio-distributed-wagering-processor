@@ -56,6 +56,8 @@ export interface OutboxRepository {
   /** Claim por lease com `FOR UPDATE SKIP LOCKED` (Design §14). */
   claimDue(limit: number, leaseSeconds: number, now: Date): Promise<OutboxMessage[]>;
   markPublished(id: string, at: Date): Promise<void>;
+  /** Marca como publicadas as pendentes entre `ids` e devolve as linhas afetadas. */
+  markPublishedMany(ids: string[], at: Date): Promise<number>;
   /** Grava attempts e next_attempt_at e zera locked_until. */
   release(m: OutboxMessage): Promise<void>;
   oldestPendingAgeSeconds(now: Date): Promise<number>;

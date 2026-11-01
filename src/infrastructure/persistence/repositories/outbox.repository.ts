@@ -47,6 +47,16 @@ export class PgOutboxRepository implements OutboxRepository {
     await this.db.run(`UPDATE outbox_messages SET published_at = ?, locked_until = NULL WHERE id = ?`, [at, id]);
   }
 
+  async markPublishedMany(ids: string[], at: Date): Promise<number> {
+    if (ids.length === 0) return 0;
+    // Um único parâmetro com literal de array do Postgres: o driver expandiria um array JS em vários placeholders.
+    return this.db.run(
+      `UPDATE outbox_messages SET published_at = ?, locked_until = NULL
+        WHERE id = ANY(?::uuid[]) AND published_at IS NULL`,
+      [at, `{${ids.join(",")}}`],
+    );
+  }
+
   async release(m: OutboxMessage): Promise<void> {
     await this.db.run(
       `UPDATE outbox_messages SET attempts = ?, next_attempt_at = ?, locked_until = NULL WHERE id = ?`,
