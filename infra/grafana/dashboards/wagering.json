@@ -1,0 +1,109 @@
+{
+  "uid": "wagering",
+  "title": "Wagering processor",
+  "tags": ["wagering"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Transações por status (/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "{{status}}", "expr": "sum(rate(wager_transactions_total[1m])) by (status)" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Latência de processamento p95 (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "{{source}}", "expr": "histogram_quantile(0.95, sum(rate(processing_duration_seconds_bucket[1m])) by (le, source))" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Lag da outbox (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "pior evento pendente", "expr": "max(outbox_lag_seconds)" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Retries por componente (/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "{{component}}", "expr": "sum(rate(retries_total[1m])) by (component)" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Mensagens na DLQ (total)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "DLQ", "expr": "sum(dlq_messages_total)" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Conflitos de lock (/s)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "conflitos", "expr": "sum(rate(lock_conflicts_total[1m]))" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Espera pelo lock de wallet p95 (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum(rate(wallet_lock_wait_seconds_bucket[1m])) by (le))" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Duplicatas detectadas (/s)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "{{source}} / {{result}}", "expr": "sum(rate(duplicates_detected_total[1m])) by (source, result)" }
+      ]
+    }
+  ]
+}

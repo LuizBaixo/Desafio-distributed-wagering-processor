@@ -46,6 +46,58 @@ Essas portas podem colidir com um Postgres ou LocalStack que já esteja rodando 
 
 Para parar: `docker compose down -v`.
 
+## Observabilidade local
+
+Opcional, por profile. Sobe Prometheus e Grafana junto com a stack:
+
+```bash
+docker compose --profile observability up -d --build --scale app=3
+```
+
+- Prometheus: <http://localhost:9090> (`PROMETHEUS_PORT`, padrão `9090`). Raspa `/metrics` de cada réplica de `app` a cada 5 s, com descoberta por DNS: `--scale app=2` ou `--scale app=3` ajusta os alvos em até 30 s, sem reiniciar o Prometheus. Em Status > Targets, cada réplica aparece como `up`.
+- Grafana: <http://localhost:3000> (`GRAFANA_PORT`, padrão `3000`). Acesso anônimo como Viewer; login de administrador `admin` / `admin`. O datasource Prometheus e o dashboard "Wagering processor" (pasta Wagering) vêm provisionados.
+
+A porta `3000` do host pode colidir com outro serviço (erro `port is already allocated`). Troque com `GRAFANA_PORT`, por exemplo `GRAFANA_PORT=3300 docker compose --profile observability up -d`.
+
+Painéis do dashboard:
+
+- **Transações por status:** taxa de `wager_transactions_total` por `status`.
+- **Latência de processamento p95:** `processing_duration_seconds` por `source` (`http`, `sqs`, `inbox`).
+- **Lag da outbox:** pior evento pendente, em segundos.
+- **Retries por componente:** taxa de `retries_total`.
+- **Mensagens na DLQ:** total de `dlq_messages_total`; fica vermelho com 1 ou mais.
+- **Conflitos de lock:** taxa de `lock_conflicts_total`.
+- **Espera pelo lock de wallet p95:** `wallet_lock_wait_seconds`, o tempo do `FOR UPDATE`.
+- **Duplicatas detectadas:** taxa de `duplicates_detected_total` por `source` e `result`.
+
+Para derrubar com os volumes: `docker compose --profile observability down -v`.
+
+## Operação
+
+### DLQ de transações
+
+Mensagens que o consumidor não consegue processar vão para `wager-transactions-dlq.fifo` com o atributo `reason`.
+
+```bash
+bun run dlq:list [--limit 10]
+```
+
+Imprime `messageId`, `reason` e os primeiros 120 caracteres do corpo, sem o campo `money`. Não remove nada da DLQ.
+
+```bash
+bun run dlq:redrive [--reason INVALID_PAYLOAD] [--max 100] [--dry-run]
+```
+
+Move mensagens da DLQ para `wager-transactions.fifo`:
+
+- `--reason`: move só as mensagens com esse motivo.
+- `--max`: limite de mensagens movidas (padrão `100`).
+- `--dry-run`: mostra quantas seriam movidas e não move nada.
+
+Cada mensagem é copiada com um `MessageDeduplicationId` novo e só é apagada da DLQ depois do envio. O `messageId` do corpo não muda, então reenviar uma mensagem que já foi processada não duplica o débito: a inbox e a idempotência absorvem a reentrega.
+
+Limitação do FIFO: uma mensagem em voo bloqueia as da mesma `walletId` até voltar. Com `--reason`, mensagens de outro motivo da mesma wallet podem ficar para a próxima execução.
+
 ## Scripts
 
 | Script | O que faz |
@@ -101,6 +153,8 @@ O script exige que a infra de teste já esteja de pé no host. Ele usa `TEST_DB_
 ## Endpoints
 
 Todos os exemplos usam a instância em `localhost:3001`. Dinheiro é sempre `{ "amount": "25.00", "currency": "BRL" }`: string decimal com exatamente 2 casas.
+
+Documentação OpenAPI interativa em <http://localhost:3001/docs> (UI) e <http://localhost:3001/docs-json> (JSON).
 
 ### Criar wallet
 

@@ -1,0 +1,13 @@
+# Scrape das réplicas do serviço `app`. `dns_sd_configs` redescobre os alvos pelo DNS do
+# Docker: `--scale app=N` vira N alvos, sem reiniciar o Prometheus (refresh em até 30s).
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: wagering-app
+    metrics_path: /metrics
+    dns_sd_configs:
+      - names: ["app"]
+        type: A
+        port: 3000

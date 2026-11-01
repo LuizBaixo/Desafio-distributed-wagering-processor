@@ -77,3 +77,36 @@ services:
         condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
+
+  # Observabilidade opcional: docker compose --profile observability up -d --build --scale app=3
+  # Prometheus raspa as réplicas de `app` (dns_sd). Grafana vem com datasource e dashboard provisionados.
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: [observability]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      app:
+        condition: service_started
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    profiles: [observability]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_started
