@@ -203,6 +203,8 @@ Quando a referência ainda não existe, a transação grava `PENDING_REFERENCE` 
 
 **Shutdown:** o consumidor para de iniciar novos `receive`, mas não aborta o long poll em curso. Abortar deixaria as mensagens que o servidor já entregou invisíveis por até 30 s. As mensagens trazidas por esse último `receive` voltam com visibilidade 0. Depois ele espera as mensagens em andamento por até `SHUTDOWN_GRACE_MS=20000` e devolve as restantes com `ChangeMessageVisibility(0)`.
 
+**Relação com o Docker (`stop_grace_period: 40s`).** O pior caso de shutdown é `CONSUMER_WAIT_SECONDS` (10 s, o long poll em curso) somado a `SHUTDOWN_GRACE_MS` (20 s, o prazo para as mensagens em andamento): 30 s. O `stop_grace_period` do serviço `app` é 40 s, porque o Docker só manda `SIGKILL` depois desse prazo. Os 10 s extras cobrem o fechamento do ORM e a saída do processo. Com o padrão do Docker (10 s), o `SIGKILL` cairia antes do fim do shutdown normal. Se mesmo assim o processo for morto, a mensagem em andamento volta pelo visibility timeout, e a inbox impede a dupla aplicação se o commit já tiver ocorrido.
+
 **Crash depois do commit e antes do ack:** a mensagem volta pelo visibility timeout, a inbox detecta a duplicata e nada é aplicado de novo. Teste C5 (`FAULT_INJECT=exit_after_commit`, ativo só com `NODE_ENV=test`).
 
 ## 13. Outbox

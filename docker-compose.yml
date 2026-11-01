@@ -66,6 +66,8 @@ services:
       AWS_SECRET_ACCESS_KEY: test
     ports:
       - "3001-3003:3000"
+    # SIGTERM -> espera até 40s -> SIGKILL. Ver ARCHITECTURE.md §12 (Shutdown).
+    stop_grace_period: 40s
     depends_on:
       postgres:
         condition: service_healthy
