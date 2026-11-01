@@ -12,7 +12,8 @@
     "migration:up": "bun --bun mikro-orm migration:up",
     "migration:down": "bun --bun mikro-orm migration:down",
     "infra:test:up": "docker compose -f docker-compose.test.yml up -d --wait",
-    "infra:test:down": "docker compose -f docker-compose.test.yml down -v"
+    "infra:test:down": "docker compose -f docker-compose.test.yml down -v",
+    "test:load": "bun run scripts/load-test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "^3.1161.0",
