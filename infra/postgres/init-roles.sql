@@ -3,7 +3,7 @@
 --
 -- Papéis do serviço. Executado uma vez, pelo superusuário, na inicialização do container.
 -- wagering_owner: dono do schema, roda as migrations.
--- wagering_app: runtime; só SELECT/INSERT/UPDATE nas tabelas (DELETE e UPDATE do ledger são barrados na Tarefa 6).
+-- wagering_app: runtime; só SELECT/INSERT/UPDATE nas tabelas (DELETE e UPDATE do ledger são barrados pela migration inicial).
 
 -- \getenv (psql 15+) lê a senha do ambiente do container, sem literal no arquivo.
 \getenv owner_pw WAGERING_OWNER_PASSWORD

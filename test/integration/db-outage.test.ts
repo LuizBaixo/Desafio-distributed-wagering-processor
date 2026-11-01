@@ -17,9 +17,11 @@ import { TEST_DOCKER_HOST } from "../helpers/env";
 const CONTAINER = process.env.TEST_OUTAGE_CONTAINER ?? "wagering-outage-pg";
 const PG_PORT = Number(process.env.TEST_OUTAGE_PG_PORT ?? 55432);
 const APP_PORT = Number(process.env.TEST_PORT_BASE ?? 4101) + 40;
+const OWNER_PASSWORD = "owner";
+const APP_PASSWORD = "app";
 const ADMIN_URL = `postgres://postgres:postgres@${TEST_DOCKER_HOST}:${PG_PORT}/wagering`;
-const OWNER_URL = `postgres://wagering_owner:owner@${TEST_DOCKER_HOST}:${PG_PORT}/wagering`;
-const APP_URL = `postgres://wagering_app:app@${TEST_DOCKER_HOST}:${PG_PORT}/wagering`;
+const OWNER_URL = `postgres://wagering_owner:${OWNER_PASSWORD}@${TEST_DOCKER_HOST}:${PG_PORT}/wagering`;
+const APP_URL = `postgres://wagering_app:${APP_PASSWORD}@${TEST_DOCKER_HOST}:${PG_PORT}/wagering`;
 
 function docker(...args: string[]): { ok: boolean; out: string } {
   const r = Bun.spawnSync(["docker", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -51,6 +53,7 @@ beforeAll(async () => {
   const run = docker(
     "run", "-d", "--name", CONTAINER, "-p", `${PG_PORT}:5432`,
     "-e", "POSTGRES_USER=postgres", "-e", "POSTGRES_PASSWORD=postgres", "-e", "POSTGRES_DB=wagering",
+    "-e", `WAGERING_OWNER_PASSWORD=${OWNER_PASSWORD}`, "-e", `WAGERING_APP_PASSWORD=${APP_PASSWORD}`,
     "postgres:17.6-alpine",
   );
   if (!run.ok) throw new Error(`docker run failed: ${run.out}`);
@@ -60,10 +63,17 @@ beforeAll(async () => {
   await Bun.sleep(1_500);
   await waitPgReady();
 
-  const admin = new Client({ connectionString: ADMIN_URL });
-  await admin.connect();
-  await admin.query(readFileSync(join(import.meta.dir, "..", "..", "infra", "postgres", "init-roles.sql"), "utf8"));
-  await admin.end();
+  // init-roles.sql usa meta-comandos do psql (\getenv), então roda pelo psql dentro do container, como no compose.
+  const init = Bun.spawnSync(
+    [
+      "docker", "exec", "-i",
+      "-e", `WAGERING_OWNER_PASSWORD=${OWNER_PASSWORD}`,
+      "-e", `WAGERING_APP_PASSWORD=${APP_PASSWORD}`,
+      CONTAINER, "psql", "-U", "postgres", "-d", "wagering", "-v", "ON_ERROR_STOP=1", "-f", "-",
+    ],
+    { stdin: readFileSync(join(import.meta.dir, "..", "..", "infra", "postgres", "init-roles.sql")), stdout: "pipe", stderr: "pipe" },
+  );
+  if (init.exitCode !== 0) throw new Error(`init-roles.sql failed: ${init.stderr.toString()}`);
 
   const orm = await MikroORM.init(buildMikroOrmConfig(OWNER_URL));
   try {
