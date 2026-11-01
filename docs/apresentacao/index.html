@@ -391,6 +391,25 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 .cmp .ln.dash { stroke: var(--muted); stroke-dasharray: 7 5; }
 .cmp .brace { fill: none; stroke: var(--ok); stroke-width: 3; stroke-linecap: round; }
 
+/* Slide 12: diagrama maior, sem o limite de 1120 px do container (proporção mantida pelo viewBox). */
+#slide-12 { padding-inline: 2vw; }
+#slide-12 > .cmp { width: min(96vw, 1600px); max-width: none; max-height: calc(100vh - 140px); margin: 0; align-self: center; }
+
+/* Slide 12: destaque do componente em hover ou foco. O nó mais interno é o que destaca. */
+.cmp .node { cursor: default; transform-box: fill-box; transform-origin: center; transition: transform 150ms ease, opacity 150ms ease, filter 150ms ease; }
+.cmp .node > rect:first-of-type { transition: stroke 150ms ease; }
+.cmp .node:is(:hover, :focus-visible):not(:has(.node:hover)) { transform: scale(1.04); filter: drop-shadow(0 0 8px rgba(88, 166, 255, 0.6)); }
+.cmp .node:is(:hover, :focus-visible):not(:has(.node:hover)) > rect:first-of-type { stroke: #58a6ff; }
+.cmp .node-db:is(:hover, :focus-visible):not(:has(.node:hover)) > rect:first-of-type { stroke: #3fb950; }
+.cmp:has(.node:hover) .node:not(:hover) { opacity: 0.45; }
+@media (prefers-reduced-motion: reduce) {
+  .cmp .node, .cmp .node > rect:first-of-type { transition: none; }
+  .cmp .node:is(:hover, :focus-visible):not(:has(.node:hover)) { transform: none; }
+}
+
+/* Tooltip de uma linha do slide 12 (criada pelo script no fim da página). */
+.cmp-tip { position: fixed; z-index: 20; white-space: nowrap; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: #161b22; color: var(--fg); font: 14px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; text-align: left; pointer-events: none; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); }
+
 /* ---------- slide 2: animação (<= 3 s). O estado base é o final. ---------- */
 .cmp .pt { opacity: 0; offset-rotate: 0deg; }
 .cmp .pt.req { fill: var(--accent); offset-path: path("M130 205 L360 205 L410 290 L1080 290"); }
@@ -628,44 +647,58 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
     </defs>
 
     <!-- observabilidade -->
-    <rect class="box" x="480" y="10" width="120" height="42" rx="8"/>
-    <text class="ctr" x="540" y="36">Prometheus</text>
-    <rect class="box" x="650" y="10" width="100" height="42" rx="8"/>
-    <text class="ctr" x="700" y="36">Grafana</text>
+    <g class="node" tabindex="0" data-tip="Coleta /metrics; opcional, por profile do compose.">
+      <rect class="box" x="480" y="10" width="120" height="42" rx="8"/>
+      <text class="ctr" x="540" y="36">Prometheus</text>
+    </g>
+    <g class="node" tabindex="0" data-tip="Dashboard Wagering processor e datasource Prometheus já provisionados.">
+      <rect class="box" x="650" y="10" width="100" height="42" rx="8"/>
+      <text class="ctr" x="700" y="36">Grafana</text>
+    </g>
     <path class="ln m" d="M600 31 H648" marker-end="url(#a-mut)"/>
     <path class="ln" d="M540 100 V54" marker-end="url(#a-acc)"/>
     <text class="mono acc" x="550" y="82">/metrics</text>
-    <rect class="box" x="880" y="10" width="100" height="42" rx="8" style="stroke-dasharray:6 4"/>
-    <text class="ctr" x="930" y="36">Jaeger</text>
+    <g class="node" tabindex="0" data-tip="Traces OTel; ligado só com OTEL_EXPORTER_OTLP_ENDPOINT.">
+      <rect class="box" x="880" y="10" width="100" height="42" rx="8" style="stroke-dasharray:6 4"/>
+      <text class="ctr" x="930" y="36">Jaeger</text>
+    </g>
     <path class="ln dash" d="M790 100 V31 H878" marker-end="url(#a-mut)"/>
     <text class="small" x="992" y="36">OTel · opcional</text>
 
     <!-- provedores -->
-    <rect class="box" x="10" y="150" width="120" height="220" rx="10"/>
-    <text class="ctr b" x="70" y="178">Provedores</text>
-    <rect class="chip" x="22" y="196" width="96" height="30" rx="15" style="stroke:#8b949e"/>
-    <text class="ctr small" x="70" y="216">provedor A</text>
-    <rect class="chip" x="22" y="244" width="96" height="30" rx="15" style="stroke:#8b949e"/>
-    <text class="ctr small" x="70" y="264">provedor B</text>
-    <rect class="chip" x="22" y="292" width="96" height="30" rx="15" style="stroke:#8b949e"/>
-    <text class="ctr small" x="70" y="312">provedor C</text>
-    <text class="ctr small" x="70" y="352">at-least-once</text>
+    <g class="node" tabindex="0" data-tip="Entrega at-least-once; Idempotency-Key obrigatória no HTTP.">
+      <rect class="box" x="10" y="150" width="120" height="220" rx="10"/>
+      <text class="ctr b" x="70" y="178">Provedores</text>
+      <rect class="chip" x="22" y="196" width="96" height="30" rx="15" style="stroke:#8b949e"/>
+      <text class="ctr small" x="70" y="216">provedor A</text>
+      <rect class="chip" x="22" y="244" width="96" height="30" rx="15" style="stroke:#8b949e"/>
+      <text class="ctr small" x="70" y="264">provedor B</text>
+      <rect class="chip" x="22" y="292" width="96" height="30" rx="15" style="stroke:#8b949e"/>
+      <text class="ctr small" x="70" y="312">provedor C</text>
+      <text class="ctr small" x="70" y="352">at-least-once</text>
+    </g>
 
     <!-- API e fila -->
-    <rect class="box acc" x="170" y="150" width="240" height="60" rx="10"/>
-    <text class="ctr b" x="290" y="176">API HTTP</text>
-    <text class="ctr small" x="290" y="196">role api</text>
+    <g class="node" tabindex="0" data-tip="Rotas HTTP; usa o mesmo caso de uso que a fila.">
+      <rect class="box acc" x="170" y="150" width="240" height="60" rx="10"/>
+      <text class="ctr b" x="290" y="176">API HTTP</text>
+      <text class="ctr small" x="290" y="196">role api</text>
+    </g>
     <path class="ln" d="M130 180 H168" marker-end="url(#a-acc)"/>
     <path class="ln" d="M410 180 H458" marker-end="url(#a-acc)"/>
 
-    <rect class="box acc" x="170" y="300" width="240" height="56" rx="10"/>
-    <text class="mono ctr acc" x="290" y="324">wager-transactions.fifo</text>
-    <text class="ctr small" x="290" y="344">grupo = walletId</text>
+    <g class="node" tabindex="0" data-tip="Agrupa por walletId; após 5 recebimentos, redrive para a DLQ.">
+      <rect class="box acc" x="170" y="300" width="240" height="56" rx="10"/>
+      <text class="mono ctr acc" x="290" y="324">wager-transactions.fifo</text>
+      <text class="ctr small" x="290" y="344">grupo = walletId</text>
+    </g>
     <path class="ln" d="M130 328 H168" marker-end="url(#a-acc)"/>
     <path class="ln" d="M410 328 H458" marker-end="url(#a-acc)"/>
 
-    <rect class="box fail" x="170" y="402" width="240" height="50" rx="10"/>
-    <text class="mono ctr failt" x="290" y="432">wager-transactions-dlq.fifo</text>
+    <g class="node" tabindex="0" data-tip="Mensagens que falham de forma permanente ou após 5 recebimentos.">
+      <rect class="box fail" x="170" y="402" width="240" height="50" rx="10"/>
+      <text class="mono ctr failt" x="290" y="432">wager-transactions-dlq.fifo</text>
+    </g>
     <path class="ln fail" d="M290 356 V400" marker-end="url(#a-fail)"/>
     <text class="small" x="300" y="384">maxReceiveCount = 5</text>
 
@@ -673,47 +706,49 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
     <rect class="frame" x="460" y="100" width="360" height="372" rx="12"/>
     <text class="b" x="476" y="121">3 réplicas · mesma imagem</text>
 
-    <g>
+    <g class="node" tabindex="0" data-tip="Mesma imagem; APP_ROLES decide quais papéis cada processo liga.">
       <rect class="box" x="472" y="130" width="336" height="104" rx="8"/>
       <text class="small b" x="484" y="152">app #1</text>
-      <rect class="chip" x="484" y="164" width="100" height="26" rx="13"/><text class="mono ctr" x="534" y="182">api</text>
-      <rect class="chip" x="592" y="164" width="100" height="26" rx="13"/><text class="mono ctr" x="642" y="182">consumer</text>
-      <rect class="chip" x="700" y="164" width="100" height="26" rx="13"/><text class="mono ctr" x="750" y="182">outbox</text>
-      <rect class="chip" x="484" y="198" width="100" height="26" rx="13"/><text class="mono ctr" x="534" y="216">pending</text>
-      <rect class="chip off" x="592" y="198" width="100" height="26" rx="13"/><text class="mono ctr" x="642" y="216">reconciler</text>
-      <rect class="chip off" x="700" y="198" width="100" height="26" rx="13"/><text class="mono ctr" x="750" y="216">retention</text>
+      <g class="node" tabindex="0" data-tip="Rotas HTTP; ligado quando APP_ROLES inclui api."><rect class="chip" x="484" y="164" width="100" height="26" rx="13"/><text class="mono ctr" x="534" y="182">api</text></g>
+      <g class="node" tabindex="0" data-tip="Consome wager-transactions.fifo; até 5 mensagens em paralelo."><rect class="chip" x="592" y="164" width="100" height="26" rx="13"/><text class="mono ctr" x="642" y="182">consumer</text></g>
+      <g class="node" tabindex="0" data-tip="Publica a outbox em wallet-events.fifo."><rect class="chip" x="700" y="164" width="100" height="26" rx="13"/><text class="mono ctr" x="750" y="182">outbox</text></g>
+      <g class="node" tabindex="0" data-tip="Resolve referências fora de ordem, até 10 tentativas."><rect class="chip" x="484" y="198" width="100" height="26" rx="13"/><text class="mono ctr" x="534" y="216">pending</text></g>
+      <g class="node" tabindex="0" data-tip="Reconcilia wallets a cada 5 min; não liga no compose."><rect class="chip off" x="592" y="198" width="100" height="26" rx="13"/><text class="mono ctr" x="642" y="216">reconciler</text></g>
+      <g class="node" tabindex="0" data-tip="Apaga outbox publicada e inbox antiga em lotes; não liga no compose."><rect class="chip off" x="700" y="198" width="100" height="26" rx="13"/><text class="mono ctr" x="750" y="216">retention</text></g>
     </g>
-    <g>
+    <g class="node" tabindex="0" data-tip="Mesma imagem; APP_ROLES decide quais papéis cada processo liga.">
       <rect class="box" x="472" y="246" width="336" height="104" rx="8"/>
       <text class="small b" x="484" y="268">app #2</text>
-      <rect class="chip" x="484" y="280" width="100" height="26" rx="13"/><text class="mono ctr" x="534" y="298">api</text>
-      <rect class="chip" x="592" y="280" width="100" height="26" rx="13"/><text class="mono ctr" x="642" y="298">consumer</text>
-      <rect class="chip" x="700" y="280" width="100" height="26" rx="13"/><text class="mono ctr" x="750" y="298">outbox</text>
-      <rect class="chip" x="484" y="314" width="100" height="26" rx="13"/><text class="mono ctr" x="534" y="332">pending</text>
-      <rect class="chip off" x="592" y="314" width="100" height="26" rx="13"/><text class="mono ctr" x="642" y="332">reconciler</text>
-      <rect class="chip off" x="700" y="314" width="100" height="26" rx="13"/><text class="mono ctr" x="750" y="332">retention</text>
+      <g class="node" tabindex="0" data-tip="Rotas HTTP; ligado quando APP_ROLES inclui api."><rect class="chip" x="484" y="280" width="100" height="26" rx="13"/><text class="mono ctr" x="534" y="298">api</text></g>
+      <g class="node" tabindex="0" data-tip="Consome wager-transactions.fifo; até 5 mensagens em paralelo."><rect class="chip" x="592" y="280" width="100" height="26" rx="13"/><text class="mono ctr" x="642" y="298">consumer</text></g>
+      <g class="node" tabindex="0" data-tip="Publica a outbox em wallet-events.fifo."><rect class="chip" x="700" y="280" width="100" height="26" rx="13"/><text class="mono ctr" x="750" y="298">outbox</text></g>
+      <g class="node" tabindex="0" data-tip="Resolve referências fora de ordem, até 10 tentativas."><rect class="chip" x="484" y="314" width="100" height="26" rx="13"/><text class="mono ctr" x="534" y="332">pending</text></g>
+      <g class="node" tabindex="0" data-tip="Reconcilia wallets a cada 5 min; não liga no compose."><rect class="chip off" x="592" y="314" width="100" height="26" rx="13"/><text class="mono ctr" x="642" y="332">reconciler</text></g>
+      <g class="node" tabindex="0" data-tip="Apaga outbox publicada e inbox antiga em lotes; não liga no compose."><rect class="chip off" x="700" y="314" width="100" height="26" rx="13"/><text class="mono ctr" x="750" y="332">retention</text></g>
     </g>
-    <g>
+    <g class="node" tabindex="0" data-tip="Mesma imagem; APP_ROLES decide quais papéis cada processo liga.">
       <rect class="box" x="472" y="362" width="336" height="104" rx="8"/>
       <text class="small b" x="484" y="384">app #3</text>
-      <rect class="chip" x="484" y="396" width="100" height="26" rx="13"/><text class="mono ctr" x="534" y="414">api</text>
-      <rect class="chip" x="592" y="396" width="100" height="26" rx="13"/><text class="mono ctr" x="642" y="414">consumer</text>
-      <rect class="chip" x="700" y="396" width="100" height="26" rx="13"/><text class="mono ctr" x="750" y="414">outbox</text>
-      <rect class="chip" x="484" y="430" width="100" height="26" rx="13"/><text class="mono ctr" x="534" y="448">pending</text>
-      <rect class="chip off" x="592" y="430" width="100" height="26" rx="13"/><text class="mono ctr" x="642" y="448">reconciler</text>
-      <rect class="chip off" x="700" y="430" width="100" height="26" rx="13"/><text class="mono ctr" x="750" y="448">retention</text>
+      <g class="node" tabindex="0" data-tip="Rotas HTTP; ligado quando APP_ROLES inclui api."><rect class="chip" x="484" y="396" width="100" height="26" rx="13"/><text class="mono ctr" x="534" y="414">api</text></g>
+      <g class="node" tabindex="0" data-tip="Consome wager-transactions.fifo; até 5 mensagens em paralelo."><rect class="chip" x="592" y="396" width="100" height="26" rx="13"/><text class="mono ctr" x="642" y="414">consumer</text></g>
+      <g class="node" tabindex="0" data-tip="Publica a outbox em wallet-events.fifo."><rect class="chip" x="700" y="396" width="100" height="26" rx="13"/><text class="mono ctr" x="750" y="414">outbox</text></g>
+      <g class="node" tabindex="0" data-tip="Resolve referências fora de ordem, até 10 tentativas."><rect class="chip" x="484" y="430" width="100" height="26" rx="13"/><text class="mono ctr" x="534" y="448">pending</text></g>
+      <g class="node" tabindex="0" data-tip="Reconcilia wallets a cada 5 min; não liga no compose."><rect class="chip off" x="592" y="430" width="100" height="26" rx="13"/><text class="mono ctr" x="642" y="448">reconciler</text></g>
+      <g class="node" tabindex="0" data-tip="Apaga outbox publicada e inbox antiga em lotes; não liga no compose."><rect class="chip off" x="700" y="430" width="100" height="26" rx="13"/><text class="mono ctr" x="750" y="448">retention</text></g>
     </g>
     <text class="small" x="472" y="492">tracejado = off por padrão no compose</text>
 
     <!-- postgres -->
     <path class="ln" d="M820 224 H864" marker-end="url(#a-acc)"/>
-    <rect class="box acc" x="866" y="100" width="196" height="248" rx="10"/>
-    <text class="b" x="882" y="124">PostgreSQL</text>
-    <rect class="tbl tx" x="876" y="140" width="176" height="32" rx="6"/><text class="mono ctr" x="964" y="161" style="font-size:12.5px">wallets</text>
-    <rect class="tbl tx" x="876" y="180" width="176" height="32" rx="6"/><text class="mono ctr" x="964" y="201" style="font-size:12.5px">wager_transactions</text>
-    <rect class="tbl tx" x="876" y="220" width="176" height="32" rx="6"/><text class="mono ctr" x="964" y="241" style="font-size:12.5px">wallet_ledger_entries</text>
-    <rect class="tbl tx" x="876" y="260" width="176" height="32" rx="6"/><text class="mono ctr" x="964" y="281" style="font-size:12.5px">inbox_messages</text>
-    <rect class="tbl tx" x="876" y="300" width="176" height="32" rx="6"/><text class="mono ctr" x="964" y="321" style="font-size:12.5px">outbox_messages</text>
+    <g class="node" tabindex="0" data-tip="Saldo, lançamento, inbox e evento gravados na mesma transação SQL.">
+      <rect class="box acc" x="866" y="100" width="196" height="248" rx="10"/>
+      <text class="b" x="882" y="124">PostgreSQL</text>
+      <g class="node node-db" tabindex="0" data-tip="UNIQUE (player_id, currency) e CHECK (balance &gt;= 0)."><rect class="tbl tx" x="876" y="140" width="176" height="32" rx="6"/><text class="mono ctr" x="964" y="161" style="font-size:12.5px">wallets</text></g>
+      <g class="node node-db" tabindex="0" data-tip="Estado terminal não muda: trigger wager_tx_guard bloqueia UPDATE."><rect class="tbl tx" x="876" y="180" width="176" height="32" rx="6"/><text class="mono ctr" x="964" y="201" style="font-size:12.5px">wager_transactions</text></g>
+      <g class="node node-db" tabindex="0" data-tip="Lançamento imutável: trigger ledger_immutable bloqueia UPDATE e DELETE."><rect class="tbl tx" x="876" y="220" width="176" height="32" rx="6"/><text class="mono ctr" x="964" y="241" style="font-size:12.5px">wallet_ledger_entries</text></g>
+      <g class="node node-db" tabindex="0" data-tip="Deduplica por consumidor: PRIMARY KEY (consumer_name, message_id)."><rect class="tbl tx" x="876" y="260" width="176" height="32" rx="6"/><text class="mono ctr" x="964" y="281" style="font-size:12.5px">inbox_messages</text></g>
+      <g class="node node-db" tabindex="0" data-tip="eventos gravados no commit, publicados depois pelo OutboxPublisher"><rect class="tbl tx" x="876" y="300" width="176" height="32" rx="6"/><text class="mono ctr" x="964" y="321" style="font-size:12.5px">outbox_messages</text></g>
+    </g>
     <path class="brace" d="M1070 140 Q1082 140 1082 152 V228 Q1082 240 1094 240 Q1082 240 1082 252 V320 Q1082 332 1070 332"/>
     <text class="b okt" x="1102" y="236">1 transação</text>
     <text class="b okt" x="1102" y="256">SQL</text>
@@ -721,22 +756,37 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 
     <!-- outbox -> wallet-events -> downstream -->
     <path class="ln" d="M720 472 V538" marker-end="url(#a-acc)"/>
-    <text class="mono acc" x="732" y="512">OutboxPublisher</text>
-    <rect class="box acc" x="640" y="540" width="190" height="50" rx="10"/>
-    <text class="mono ctr acc" x="735" y="570">wallet-events.fifo</text>
+    <g class="node" tabindex="0" data-tip="Publica a outbox em wallet-events.fifo, em lotes de até 10 entradas.">
+      <rect class="hit" x="720" y="498" width="160" height="22" fill="transparent"/>
+      <text class="mono acc" x="732" y="512">OutboxPublisher</text>
+    </g>
+    <g class="node" tabindex="0" data-tip="Destino da outbox; MessageGroupId = aggregateId.">
+      <rect class="box acc" x="640" y="540" width="190" height="50" rx="10"/>
+      <text class="mono ctr acc" x="735" y="570">wallet-events.fifo</text>
+    </g>
     <path class="ln" d="M830 565 H898" marker-end="url(#a-acc)"/>
-    <rect class="box" x="900" y="540" width="210" height="50" rx="10"/>
-    <text class="ctr" x="1005" y="570">consumidores downstream</text>
+    <g class="node" tabindex="0" data-tip="Consomem WalletBalanceChanged; ordenar por data.walletVersion.">
+      <rect class="box" x="900" y="540" width="210" height="50" rx="10"/>
+      <text class="ctr" x="1005" y="570">consumidores downstream</text>
+    </g>
 
     <!-- hexagonal -->
     <text class="b" x="10" y="498">Camadas (hexagonal): dependências para dentro</text>
-    <rect class="box" x="10" y="510" width="118" height="44" rx="8"/><text class="ctr" x="69" y="537">interfaces</text>
-    <rect class="box acc" x="158" y="510" width="140" height="44" rx="8"/><text class="ctr" x="228" y="529">application</text><text class="ctr small" x="228" y="546">portas</text>
-    <rect class="box ok" x="328" y="510" width="112" height="44" rx="8"/><text class="ctr" x="384" y="529">domain</text><text class="ctr small" x="384" y="546">TS puro</text>
+    <g class="node" tabindex="0" data-tip="Controllers HTTP, filtro de erro, workers e consumidor SQS.">
+      <rect class="box" x="10" y="510" width="118" height="44" rx="8"/><text class="ctr" x="69" y="537">interfaces</text>
+    </g>
+    <g class="node" tabindex="0" data-tip="Casos de uso e portas; depende só de domínio e portas.">
+      <rect class="box acc" x="158" y="510" width="140" height="44" rx="8"/><text class="ctr" x="228" y="529">application</text><text class="ctr small" x="228" y="546">portas</text>
+    </g>
+    <g class="node" tabindex="0" data-tip="Só TypeScript puro; não importa NestJS, MikroORM, pg nem AWS SDK.">
+      <rect class="box ok" x="328" y="510" width="112" height="44" rx="8"/><text class="ctr" x="384" y="529">domain</text><text class="ctr small" x="384" y="546">TS puro</text>
+    </g>
     <path class="ln m" d="M128 532 H156" marker-end="url(#a-mut)"/>
     <path class="ln m" d="M298 532 H326" marker-end="url(#a-mut)"/>
-    <rect class="box" x="60" y="584" width="330" height="32" rx="8"/>
-    <text class="ctr" x="225" y="605">infrastructure · adaptadores das portas</text>
+    <g class="node" tabindex="0" data-tip="Adaptadores das portas: MikroORM, SQS, prom-client, pino.">
+      <rect class="box" x="60" y="584" width="330" height="32" rx="8"/>
+      <text class="ctr" x="225" y="605">infrastructure · adaptadores das portas</text>
+    </g>
     <path class="ln m" d="M228 584 V556" marker-end="url(#a-mut)"/>
   </svg>
 </section>
@@ -1054,6 +1104,65 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
   });
 
   go(fromHash());
+})();
+</script>
+<script>
+// Slide 12: tooltip de uma linha perto do cursor (ou do foco) e nós que não avançam o slide.
+(function () {
+  "use strict";
+  var svg = document.querySelector("#slide-12 .cmp");
+  if (!svg) return;
+  var tip = document.createElement("div");
+  tip.className = "cmp-tip";
+  tip.setAttribute("role", "tooltip");
+  tip.hidden = true;
+  document.body.appendChild(tip);
+
+  function nodeOf(t) { return t && t.closest ? t.closest(".node") : null; }
+  function place(x, y) {
+    var w = tip.offsetWidth, h = tip.offsetHeight;
+    var left = x + 16, top = y + 16;
+    if (left + w > window.innerWidth - 8) left = x - w - 16;
+    if (top + h > window.innerHeight - 8) top = y - h - 16;
+    tip.style.left = Math.max(8, left) + "px";
+    tip.style.top = Math.max(8, top) + "px";
+  }
+  function show(n, x, y) {
+    tip.textContent = n.getAttribute("data-tip");
+    tip.hidden = false;
+    place(x, y);
+  }
+  function hide() { tip.hidden = true; }
+
+  svg.addEventListener("pointerover", function (e) {
+    var n = nodeOf(e.target);
+    if (n) show(n, e.clientX, e.clientY); else hide();
+  });
+  svg.addEventListener("pointermove", function (e) {
+    if (!tip.hidden) place(e.clientX, e.clientY);
+  });
+  svg.addEventListener("pointerleave", hide);
+  svg.addEventListener("focusin", function (e) {
+    var n = nodeOf(e.target);
+    if (!n) return;
+    var r = n.getBoundingClientRect();
+    show(n, r.right, r.bottom);
+  });
+  svg.addEventListener("focusout", hide);
+
+  // Clique num nó não avança nem volta o slide.
+  svg.addEventListener("click", function (e) {
+    if (nodeOf(e.target)) e.stopPropagation();
+  });
+  // Espaço e Enter num nó focado também não avançam.
+  svg.addEventListener("keydown", function (e) {
+    if (nodeOf(e.target) && (e.key === " " || e.key === "Enter")) {
+      e.stopPropagation();
+      if (e.key === " ") e.preventDefault();
+    }
+  });
+  // Qualquer tecla fecha a tooltip (ex.: seta para trocar de slide).
+  document.addEventListener("keydown", hide);
 })();
 </script>
 </body>
