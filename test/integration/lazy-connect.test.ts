@@ -1,11 +1,15 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { MikroORM } from "@mikro-orm/postgresql";
 import { TransientInfrastructureError } from "../../src/application/errors";
 import { buildMikroOrmConfig } from "../../mikro-orm.config";
 import { MikroUnitOfWork } from "../../src/infrastructure/persistence/mikro-unit-of-work";
+import { migrateUp } from "../helpers/db";
 import { TEST_APP_DATABASE_URL } from "../helpers/env";
 
 const orms: MikroORM[] = [];
+beforeAll(async () => {
+  await migrateUp(); // garante o banco de teste do agente
+});
 afterAll(async () => {
   for (const o of orms) await o.close(true);
 });

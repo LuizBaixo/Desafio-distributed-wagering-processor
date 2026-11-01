@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Client } from "pg";
 import { GetQueueAttributesCommand, GetQueueUrlCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { ensureTestDatabase } from "../helpers/db";
 import { TEST_DATABASE_URL, TEST_SQS_ENDPOINT } from "../helpers/env";
 
 const sqs = new SQSClient({
@@ -13,6 +14,7 @@ const QUEUES = ["wager-transactions.fifo", "wager-transactions-dlq.fifo", "walle
 
 describe("infra smoke", () => {
   test("PostgreSQL responde SELECT 1", async () => {
+    await ensureTestDatabase();
     const client = new Client({ connectionString: TEST_DATABASE_URL });
     await client.connect();
     try {
