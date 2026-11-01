@@ -19,6 +19,7 @@ import { HealthController } from "./interfaces/http/health.controller";
 import { MetricsController } from "./interfaces/http/metrics.controller";
 import { WalletsController } from "./interfaces/http/wallets.controller";
 import { ERROR_LOGGER, HttpErrorFilter } from "./interfaces/http/http-error.filter";
+import { WageringModule } from "./interfaces/http/wagering.module";
 
 @Module({})
 export class AppModule {
@@ -31,6 +32,7 @@ export class AppModule {
         }),
         ConfigModule.register(config),
         PersistenceModule,
+        WageringModule,
       ],
       controllers: [HealthController, MetricsController, WalletsController],
       providers: [
