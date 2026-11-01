@@ -1,9 +1,35 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { NestFactory } from "@nestjs/core";
-import type { INestApplication } from "@nestjs/common";
+import {
+  Injectable,
+  Module,
+  type BeforeApplicationShutdown,
+  type DynamicModule,
+  type INestApplication,
+} from "@nestjs/common";
 import { AppModule } from "../../src/app.module";
-import { loadConfig } from "../../src/config/config";
+import { loadConfig, type AppConfig } from "../../src/config/config";
 import { TEST_APP_DATABASE_URL, TEST_SQS_ENDPOINT } from "../helpers/env";
+
+/**
+ * Só de teste: simula trabalho em andamento no shutdown (como o consumidor ou o worker, sem depender do SQS).
+ * Fica no módulo raiz do teste, que o Nest executa depois dos módulos importados (AppModule).
+ */
+const SHUTDOWN_WAIT_MS = 1500;
+
+@Injectable()
+class SlowShutdownProbe implements BeforeApplicationShutdown {
+  async beforeApplicationShutdown(): Promise<void> {
+    await Bun.sleep(SHUTDOWN_WAIT_MS);
+  }
+}
+
+@Module({})
+class ShutdownProbeRoot {
+  static register(config: AppConfig): DynamicModule {
+    return { module: ShutdownProbeRoot, imports: [AppModule.register(config)], providers: [SlowShutdownProbe] };
+  }
+}
 
 process.env.LOG_LEVEL ??= "silent";
 process.env.AWS_ACCESS_KEY_ID ??= "test";
@@ -61,5 +87,39 @@ describe("health e metrics", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/plain");
     expect(await res.text()).toContain("wager_transactions_total");
+  });
+});
+
+describe("readiness durante o shutdown", () => {
+  test("app.close() em andamento: /health/ready 503 SHUTTING_DOWN e /health/live 200 em menos de 200 ms", async () => {
+    const config = loadConfig({
+      DATABASE_URL: TEST_APP_DATABASE_URL,
+      SQS_ENDPOINT: TEST_SQS_ENDPOINT,
+      AWS_REGION: "us-east-1",
+    });
+    const app = await NestFactory.create(ShutdownProbeRoot.register(config), { logger: false });
+    await app.listen(0, "127.0.0.1");
+    const baseUrl = await app.getUrl();
+
+    // Sem await: o shutdown fica parado no SlowShutdownProbe, antes de o servidor HTTP fechar.
+    const closing = app.close();
+    const started = Date.now();
+    // O estado vira "desligando" no primeiro onModuleDestroy, alguns ticks depois de close(). Consulta até ver.
+    let ready = await fetch(`${baseUrl}/health/ready`);
+    let body = (await ready.json()) as { error?: { code: string } };
+    while (body.error?.code !== "SHUTTING_DOWN" && Date.now() - started < 200) {
+      ready = await fetch(`${baseUrl}/health/ready`);
+      body = (await ready.json()) as { error?: { code: string } };
+    }
+    const live = await fetch(`${baseUrl}/health/live`);
+    const elapsed = Date.now() - started;
+
+    expect(elapsed).toBeLessThan(200);
+    expect(ready.status).toBe(503);
+    expect(body.error?.code).toBe("SHUTTING_DOWN");
+    expect(live.status).toBe(200);
+    expect(await live.json()).toEqual({ status: "ok" });
+
+    await closing;
   });
 });

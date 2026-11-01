@@ -1,11 +1,18 @@
-import { Controller, Get, Inject, type OnModuleDestroy } from "@nestjs/common";
+import { Controller, Get, Inject, Res, type OnModuleDestroy } from "@nestjs/common";
 import { Pool } from "pg";
 import { APP_CONFIG, type AppConfig } from "../../config/config";
 import { TransientInfrastructureError } from "../../application/errors";
 import { QUEUE_PORT, type QueuePort } from "../../application/ports/queue";
+import { LifecycleState } from "../../infrastructure/system/lifecycle-state";
+
+/** Subconjunto de Express Response usado aqui; evita depender de @types/express. */
+interface ResponseLike {
+  status(code: number): unknown;
+}
 
 /**
  * Liveness: processo vivo. Readiness: SELECT 1 no PostgreSQL e `QueuePort.ping()` no SQS.
+ * Durante o shutdown, readiness responde 503 SHUTTING_DOWN, e liveness segue 200 até o fim.
  */
 @Controller("health")
 export class HealthController implements OnModuleDestroy {
@@ -14,6 +21,7 @@ export class HealthController implements OnModuleDestroy {
   constructor(
     @Inject(APP_CONFIG) config: AppConfig,
     @Inject(QUEUE_PORT) private readonly queue: QueuePort,
+    @Inject(LifecycleState) private readonly lifecycle: LifecycleState,
   ) {
     this.pool = new Pool({
       connectionString: config.databaseUrl,
@@ -35,7 +43,11 @@ export class HealthController implements OnModuleDestroy {
   }
 
   @Get("ready")
-  async ready(): Promise<{ status: string }> {
+  async ready(@Res({ passthrough: true }) res: ResponseLike): Promise<{ status: string } | { error: { code: string; message: string } }> {
+    if (this.lifecycle.isShuttingDown()) {
+      res.status(503);
+      return { error: { code: "SHUTTING_DOWN", message: "shutting down" } };
+    }
     const db = await this.pingDb();
     const sqs = await this.pingSqs();
     if (db !== "ok" || sqs !== "ok") {

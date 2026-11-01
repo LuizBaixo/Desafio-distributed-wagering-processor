@@ -5,6 +5,7 @@ import { APP_CONFIG, type AppConfig } from "./config/config";
 import { ConfigModule } from "./config/config.module";
 import { createLogger } from "./infrastructure/observability/logger";
 import { PersistenceModule } from "./infrastructure/persistence/persistence.module";
+import { SystemModule } from "./infrastructure/system/system.module";
 import { CreateWallet } from "./application/wallet/create-wallet";
 import { WalletQueries } from "./application/wallet/wallet-queries";
 import { ReconcileWallet } from "./application/wallet/reconcile-wallet";
@@ -37,6 +38,7 @@ export class AppModule {
         }),
         ConfigModule.register(config),
         PersistenceModule,
+        SystemModule,
         WageringModule,
         MessagingModule,
         OutboxModule,
