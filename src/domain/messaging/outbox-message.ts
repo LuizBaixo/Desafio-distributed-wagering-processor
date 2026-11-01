@@ -13,6 +13,8 @@ export class OutboxMessage {
     private _attempts: number,
     private _nextAttemptAt?: Date,
     private _publishedAt?: Date,
+    private _deadAt?: Date,
+    private _lastError?: string,
   ) {}
 
   static enqueue(event: IntegrationEvent<unknown>): OutboxMessage {
@@ -24,6 +26,8 @@ export class OutboxMessage {
       event.occurredAt,
       0,
       event.occurredAt,
+      undefined,
+      undefined,
       undefined,
     );
   }
@@ -38,6 +42,8 @@ export class OutboxMessage {
     attempts: number;
     nextAttemptAt?: Date;
     publishedAt?: Date;
+    deadAt?: Date;
+    lastError?: string;
   }): OutboxMessage {
     return new OutboxMessage(
       state.id,
@@ -48,6 +54,8 @@ export class OutboxMessage {
       state.attempts,
       state.nextAttemptAt,
       state.publishedAt,
+      state.deadAt,
+      state.lastError,
     );
   }
 
@@ -63,8 +71,18 @@ export class OutboxMessage {
     return this._publishedAt;
   }
 
+  /** Quando a mensagem foi dada como morta (falha permanente ou tentativas esgotadas). */
+  get deadAt(): Date | undefined {
+    return this._deadAt;
+  }
+
+  /** Último código de erro de publicação, gravado junto com `dead_at`. */
+  get lastError(): string | undefined {
+    return this._lastError;
+  }
+
   isPending(): boolean {
-    return this._publishedAt === undefined;
+    return this._publishedAt === undefined && this._deadAt === undefined;
   }
 
   isDue(now: Date): boolean {
@@ -73,6 +91,12 @@ export class OutboxMessage {
 
   markPublished(at: Date): void {
     this._publishedAt = at;
+  }
+
+  /** Dá a mensagem como morta: sai do claim e do lag e fica na tabela para inspeção. */
+  markDead(at: Date, lastError: string): void {
+    this._deadAt = at;
+    this._lastError = lastError;
   }
 
   /** Backoff: min(2^attempts, 300) s, calculado antes de incrementar attempts. */

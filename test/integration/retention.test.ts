@@ -157,7 +157,8 @@ describe("grants and indexes", () => {
   });
 
   test("down revokes DELETE and drops the indexes; up restores them", async () => {
-    await migrateDownLast();
+    await migrateDownLast(); // dead letter da outbox
+    await migrateDownLast(); // retenção
     try {
       expect(await pgCode(appPool().query(`DELETE FROM outbox_messages`))).toBe("42501");
       expect(await pgCode(appPool().query(`DELETE FROM inbox_messages`))).toBe("42501");

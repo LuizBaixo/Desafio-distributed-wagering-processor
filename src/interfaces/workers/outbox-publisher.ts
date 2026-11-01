@@ -18,6 +18,8 @@ export interface OutboxPublisherOptions {
   batchSize?: number;
   /** Entradas por `SendMessageBatch` (OUTBOX_SEND_BATCH, no máximo 10). */
   sendBatchSize?: number;
+  /** Tentativas até a mensagem ser dada como morta (OUTBOX_MAX_ATTEMPTS). */
+  maxAttempts?: number;
   /** Lease padrão do claim (Design §14: 30 s). `tick({ leaseSeconds })` sobrescreve. */
   leaseSeconds?: number;
 }
@@ -26,6 +28,20 @@ const DEFAULT_BATCH = 100;
 const DEFAULT_SEND_BATCH = 10;
 const MAX_SEND_BATCH = 10;
 const DEFAULT_LEASE_SECONDS = 30;
+const DEFAULT_MAX_ATTEMPTS = 50;
+/**
+ * Códigos de falha por entrada que repetir o envio não resolve: o conteúdo ou o pedido está errado (falha do
+ * remetente, na documentação do SQS). `BODY_TOO_LARGE` é o código local de corpo acima de 256 KiB.
+ */
+const PERMANENT_FAILURE_CODES: ReadonlySet<string> = new Set([
+  "BODY_TOO_LARGE",
+  "InvalidParameterValue",
+  "InvalidMessageContents",
+  "UnsupportedOperation",
+  "MissingParameter",
+  "InvalidAttributeName",
+  "InvalidAttributeValue",
+]);
 /** Limite do SQS para a soma dos corpos de um `SendMessageBatch` (e para um corpo isolado). */
 const MAX_BATCH_BYTES = 262_144;
 
@@ -158,7 +174,26 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
     const sent = chunk.filter((m) => okIds.has(m.id));
     // Qualquer entrada que o SQS não confirmou volta para retry, inclusive as que ele omitiu.
     const retry = chunk.filter((m) => !okIds.has(m.id));
-    for (const msg of retry) msg.scheduleRetry(now);
+    const codes = new Map(result.failed.map((f) => [f.id, f.code]));
+    const maxAttempts = this.options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    // Falha permanente, ou tentativas esgotadas: a mensagem morre (dead_at) em vez de voltar para a fila de retry.
+    const dead: OutboxMessage[] = [];
+    const retrying: OutboxMessage[] = [];
+    for (const msg of retry) {
+      const code = codes.get(msg.id) ?? "OmittedFromResult";
+      if (PERMANENT_FAILURE_CODES.has(code)) {
+        msg.markDead(this.clock.now(), code);
+        dead.push(msg);
+        continue;
+      }
+      msg.scheduleRetry(now);
+      if (msg.attempts >= maxAttempts) {
+        msg.markDead(this.clock.now(), code);
+        dead.push(msg);
+      } else {
+        retrying.push(msg);
+      }
+    }
     for (const f of result.failed) {
       this.logger.error({ outboxId: f.id, code: f.code }, "outbox publish failed");
     }
@@ -171,7 +206,8 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
             this.clock.now(),
           );
         }
-        for (const msg of retry) await scope.outbox.release(msg);
+        for (const msg of retrying) await scope.outbox.release(msg);
+        for (const msg of dead) await scope.outbox.markDead(msg);
       });
     } catch (err) {
       // Enviado mas não marcado (ou retry não gravado): o lease expira e a mensagem é reprocessada (at-least-once).
@@ -179,7 +215,14 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
       return { published: 0, failed: retry.length };
     }
 
-    for (let i = 0; i < retry.length; i++) this.metrics.retry("outbox");
+    for (const msg of dead) {
+      this.logger.error(
+        { outboxId: msg.id, eventType: msg.eventType, attempts: msg.attempts, lastError: msg.lastError },
+        "outbox message dead",
+      );
+      this.metrics.outboxDead();
+    }
+    for (let i = 0; i < retrying.length; i++) this.metrics.retry("outbox");
     return { published: sent.length, failed: retry.length };
   }
 

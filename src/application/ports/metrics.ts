@@ -11,6 +11,8 @@ export interface Metrics {
   /** Tempo gasto esperando o lock de wallet (`SELECT ... FOR UPDATE`), inclusive quando termina em erro. */
   observeLockWait(seconds: number): void;
   setOutboxLag(seconds: number): void;
+  /** Uma mensagem da outbox foi dada como morta (falha permanente ou tentativas esgotadas). */
+  outboxDead(): void;
   observeProcessing(seconds: number, source: MetricSource): void;
   reconciliationMismatch(): void;
   /** Fim de uma execução completa do job de reconciliação: `checked` wallets conferidas, em `finishedAtSeconds` (epoch). */

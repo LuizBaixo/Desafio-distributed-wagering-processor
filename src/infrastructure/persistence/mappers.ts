@@ -73,6 +73,8 @@ export function outboxFromRow(r: OutboxRow): OutboxMessage {
     attempts: r.attempts,
     nextAttemptAt: toOptDate(r.next_attempt_at),
     publishedAt: toOptDate(r.published_at),
+    ...(r.dead_at ? { deadAt: toDate(r.dead_at) } : {}),
+    ...(r.last_error ? { lastError: r.last_error } : {}),
   });
 }
 

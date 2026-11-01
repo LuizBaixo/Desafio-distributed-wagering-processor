@@ -30,6 +30,7 @@ export class PgOutboxRepository implements OutboxRepository {
         WHERE id IN (
           SELECT id FROM outbox_messages
            WHERE published_at IS NULL
+             AND dead_at IS NULL
              AND next_attempt_at <= ?
              AND (locked_until IS NULL OR locked_until < ?)
            ORDER BY occurred_at
@@ -64,10 +65,19 @@ export class PgOutboxRepository implements OutboxRepository {
     );
   }
 
+  async markDead(m: OutboxMessage): Promise<void> {
+    await this.db.run(
+      `UPDATE outbox_messages
+          SET dead_at = ?, last_error = ?, attempts = ?, locked_until = NULL
+        WHERE id = ?`,
+      [m.deadAt, m.lastError ?? null, m.attempts, m.id],
+    );
+  }
+
   async oldestPendingAgeSeconds(now: Date): Promise<number> {
     const row = await this.db.one<{ age: string }>(
       `SELECT COALESCE(EXTRACT(EPOCH FROM (?::timestamptz - MIN(occurred_at))), 0)::text AS age
-         FROM outbox_messages WHERE published_at IS NULL`,
+         FROM outbox_messages WHERE published_at IS NULL AND dead_at IS NULL`,
       [now],
     );
     return Math.max(0, Number(row?.age ?? 0));

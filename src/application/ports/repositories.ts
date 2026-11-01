@@ -67,6 +67,9 @@ export interface OutboxRepository {
   markPublishedMany(ids: string[], at: Date): Promise<number>;
   /** Grava attempts e next_attempt_at e zera locked_until. */
   release(m: OutboxMessage): Promise<void>;
+  /** Grava `dead_at`, `last_error` e `attempts` e zera o lease. Mensagem morta não é reclamada nem conta no lag. */
+  markDead(m: OutboxMessage): Promise<void>;
+  /** Idade da pendente mais antiga, ignorando publicadas e mortas. */
   oldestPendingAgeSeconds(now: Date): Promise<number>;
   /** Apaga até `limit` linhas publicadas antes de `cutoff`. Nunca toca em linha com `published_at` nulo. */
   purgePublishedBefore(cutoff: Date, limit: number): Promise<number>;

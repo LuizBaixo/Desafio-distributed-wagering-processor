@@ -33,6 +33,7 @@ import { OutboxPublisher } from "./outbox-publisher";
           enabled: config.roles.has("outbox"),
           batchSize: config.outbox.batchSize,
           sendBatchSize: config.outbox.sendBatch,
+          maxAttempts: config.outbox.maxAttempts,
         }),
     },
   ],

@@ -349,6 +349,7 @@ describe("correções: re-checagem no limite e isolamento de erro por item", () 
       dlq() {},
       lockConflict() {},
       setOutboxLag() {},
+      outboxDead() {},
       observeProcessing() {},
       observeLockWait() {},
       reconciliationMismatch() {},

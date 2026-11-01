@@ -2,8 +2,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import type { Pool } from "pg";
 import { appPool, closePools, migrateDown, migrateDownLast, migrateUp, ownerPool, resetDb } from "../helpers/db";
 
-/** Reverte as duas últimas migrations: a de retenção (mais nova) e a de consistência do ledger. */
+/** Reverte as três últimas migrations: dead letter da outbox, retenção e consistência do ledger. */
 async function migrateDownLedgerConsistency(): Promise<void> {
+  await migrateDownLast();
   await migrateDownLast();
   await migrateDownLast();
 }
@@ -488,6 +489,28 @@ describe("ledger consistency constraints", () => {
     await migrateUp();
     await migrateUp();
     expect(await constraintNames()).toEqual([...LEDGER_CONSISTENCY_CONSTRAINTS].sort());
+  });
+
+  test("outbox dead letter: up cria dead_at/last_error e o índice parcial exclui mortas; down desfaz", async () => {
+    const cols = async () =>
+      (await ownerPool().query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = 'outbox_messages' AND column_name IN ('dead_at', 'last_error') ORDER BY 1`,
+      )).rows.map((r) => r.column_name);
+    const dueIndex = async () =>
+      (await ownerPool().query<{ indexdef: string }>(`SELECT indexdef FROM pg_indexes WHERE indexname = 'outbox_due'`)).rows[0]?.indexdef ?? "";
+
+    expect(await cols()).toEqual(["dead_at", "last_error"]);
+    expect(await dueIndex()).toContain("dead_at IS NULL");
+    await migrateDownLast();
+    try {
+      expect(await cols()).toEqual([]);
+      const def = await dueIndex();
+      expect(def).toContain("published_at IS NULL");
+      expect(def).not.toContain("dead_at");
+    } finally {
+      await migrateUp();
+    }
+    expect(await cols()).toEqual(["dead_at", "last_error"]);
   });
 
   test("down of this migration alone drops the 4 constraints and keeps the initial schema", async () => {

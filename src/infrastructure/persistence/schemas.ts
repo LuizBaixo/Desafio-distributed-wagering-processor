@@ -63,4 +63,6 @@ export interface OutboxRow {
   next_attempt_at: DbDate;
   locked_until: DbDate | null;
   published_at: DbDate | null;
+  dead_at?: DbDate | null;
+  last_error?: string | null;
 }

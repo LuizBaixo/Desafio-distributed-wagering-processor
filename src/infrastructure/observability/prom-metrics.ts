@@ -47,6 +47,12 @@ export class PromMetrics implements Metrics {
     registers: [this.registry],
   });
 
+  private readonly outboxDeadCounter = new Counter({
+    name: "outbox_dead_total",
+    help: "Mensagens da outbox dadas como mortas (falha permanente ou tentativas esgotadas)",
+    registers: [this.registry],
+  });
+
   private readonly outboxLag = new Gauge({
     name: "outbox_lag_seconds",
     help: "Idade do evento pendente mais antigo da outbox",
@@ -116,6 +122,10 @@ export class PromMetrics implements Metrics {
 
   setOutboxLag(seconds: number): void {
     this.outboxLag.set(seconds);
+  }
+
+  outboxDead(): void {
+    this.outboxDeadCounter.inc();
   }
 
   observeProcessing(seconds: number, source: MetricSource): void {

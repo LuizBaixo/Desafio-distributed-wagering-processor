@@ -45,7 +45,7 @@ function publisherFor(
   queue: QueuePort = container.get<QueuePort>(QUEUE_PORT),
   metrics?: Metrics,
   logger: Logger = silent,
-  batching: { batchSize?: number; sendBatchSize?: number } = {},
+  batching: { batchSize?: number; sendBatchSize?: number; maxAttempts?: number } = {},
 ): OutboxPublisher {
   return new OutboxPublisher(uow, queue, container.get<Clock>(CLOCK), metrics ?? container.get<Metrics>(METRICS), logger, {
     queueName: EVENTS_QUEUE,
@@ -204,6 +204,7 @@ describe("publisher da outbox", () => {
               enqueue: scope.outbox.enqueue.bind(scope.outbox),
               claimDue: scope.outbox.claimDue.bind(scope.outbox),
               release: scope.outbox.release.bind(scope.outbox),
+              markDead: scope.outbox.markDead.bind(scope.outbox),
               oldestPendingAgeSeconds: scope.outbox.oldestPendingAgeSeconds.bind(scope.outbox),
               purgePublishedBefore: scope.outbox.purgePublishedBefore.bind(scope.outbox),
               markPublished: scope.outbox.markPublished.bind(scope.outbox),
@@ -257,6 +258,7 @@ describe("publisher da outbox", () => {
       dlq() {},
       lockConflict() {},
       setOutboxLag() {},
+      outboxDead() {},
       observeProcessing() {},
       reconciliationMismatch() {},
       reconciliationRun() {},
@@ -313,6 +315,73 @@ describe("publisher da outbox", () => {
     await expect(queue.sendBatch(EVENTS_QUEUE, Array.from({ length: 9 }, entry))).rejects.toThrow(/limit/);
 
     expect((await receiveAll(EVENTS_QUEUE, 1)).filter((m) => m.body.includes(group))).toHaveLength(0);
+  });
+
+  test("corpo acima de 256 KiB vira dead (BODY_TOO_LARGE), sem retry, e o lag e o claim ignoram a linha", async () => {
+    const aggregate = crypto.randomUUID();
+    const hugeId = crypto.randomUUID();
+    await ownerPool().query(
+      `INSERT INTO outbox_messages (id, aggregate_id, event_type, payload, occurred_at, attempts, next_attempt_at)
+       VALUES ($1, $2, 'TestEvent', $3::jsonb, now() - interval '1 hour', 0, now() - interval '1 minute')`,
+      [hugeId, aggregate, JSON.stringify({ eventId: hugeId, pad: "x".repeat(262_200) })],
+    );
+    const [okId] = await seedOutbox(1, aggregate);
+    const deadLogs: unknown[] = [];
+    const logger: Logger = { info() {}, warn() {}, error: (o, msg) => void (msg === "outbox message dead" && deadLogs.push(o)) };
+    const dead: number[] = [];
+    const baseMetrics = container.get<Metrics>(METRICS);
+    const metrics = new Proxy(baseMetrics, {
+      get: (target, prop) => (prop === "outboxDead" ? () => void dead.push(1) : Reflect.get(target, prop)),
+    });
+
+    const publisher = publisherFor(container.get<UnitOfWork>(UNIT_OF_WORK), undefined, metrics, logger);
+    expect(await publisher.tick()).toBe(1);
+
+    const { rows } = await ownerPool().query<{ id: string; dead_at: Date | null; last_error: string | null; attempts: number; published_at: Date | null }>(
+      `SELECT id, dead_at, last_error, attempts, published_at FROM outbox_messages WHERE id = ANY($1::uuid[])`,
+      [[hugeId, okId]],
+    );
+    const huge = rows.find((r) => r.id === hugeId)!;
+    expect(huge.dead_at).not.toBeNull();
+    expect(huge.last_error).toBe("BODY_TOO_LARGE");
+    expect(huge.published_at).toBeNull();
+    expect(rows.find((r) => r.id === okId)!.published_at).not.toBeNull();
+    expect(dead).toEqual([1]);
+    expect(deadLogs).toHaveLength(1);
+
+    const uow = container.get<UnitOfWork>(UNIT_OF_WORK);
+    expect(await uow.run((s) => s.outbox.oldestPendingAgeSeconds(new Date()))).toBe(0);
+    expect(await uow.run((s) => s.outbox.claimDue(10, 30, new Date()))).toEqual([]);
+  });
+
+  test("attempts no limite (OUTBOX_MAX_ATTEMPTS) vira dead com o último erro, e deixa de ser reclamada", async () => {
+    const aggregate = crypto.randomUUID();
+    const id = crypto.randomUUID();
+    await ownerPool().query(
+      `INSERT INTO outbox_messages (id, aggregate_id, event_type, payload, occurred_at, attempts, next_attempt_at)
+       VALUES ($1, $2, 'TestEvent', $3::jsonb, now(), 49, now() - interval '1 minute')`,
+      [id, aggregate, JSON.stringify({ eventId: id })],
+    );
+    const brokenQueue: QueuePort = {
+      receive: async () => [],
+      delete: async () => {},
+      changeVisibility: async () => {},
+      send: async () => {},
+      sendBatch: async (_q, entries) => ({ ok: [], failed: entries.map((e) => ({ id: e.id, code: "InternalError" })) }),
+      ping: async () => {},
+    };
+
+    const publisher = publisherFor(container.get<UnitOfWork>(UNIT_OF_WORK), brokenQueue, undefined, silent, { maxAttempts: 50 });
+    expect(await publisher.tick()).toBe(0);
+
+    const { rows } = await ownerPool().query<{ dead_at: Date | null; last_error: string | null; attempts: number }>(
+      `SELECT dead_at, last_error, attempts FROM outbox_messages WHERE id = $1`,
+      [id],
+    );
+    expect(rows[0]!.attempts).toBe(50);
+    expect(rows[0]!.dead_at).not.toBeNull();
+    expect(rows[0]!.last_error).toBe("InternalError");
+    expect(await container.get<UnitOfWork>(UNIT_OF_WORK).run((s) => s.outbox.claimDue(10, 30, new Date(Date.now() + 3_600_000)))).toEqual([]);
   });
 
   test("markPublishedMany marca só pendentes e devolve as linhas afetadas", async () => {

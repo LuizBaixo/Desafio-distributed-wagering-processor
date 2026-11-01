@@ -29,6 +29,7 @@ function makeMessages(n: number): OutboxMessage[] {
 class FakeOutbox implements OutboxRepository {
   readonly publishedMany: string[][] = [];
   readonly released: Array<{ id: string; attempts: number }> = [];
+  readonly dead: Array<{ id: string; attempts: number; error: string | undefined }> = [];
   private readonly pending: OutboxMessage[];
   constructor(messages: OutboxMessage[]) {
     this.pending = [...messages];
@@ -47,6 +48,9 @@ class FakeOutbox implements OutboxRepository {
   async release(m: OutboxMessage): Promise<void> {
     this.released.push({ id: m.id, attempts: m.attempts });
   }
+  async markDead(m: OutboxMessage): Promise<void> {
+    this.dead.push({ id: m.id, attempts: m.attempts, error: m.lastError });
+  }
   async oldestPendingAgeSeconds(): Promise<number> {
     return 0;
   }
@@ -59,8 +63,11 @@ function fakeUow(outbox: OutboxRepository): UnitOfWork {
   return { run: (work) => work({ outbox } as unknown as TransactionScope) };
 }
 
+const deadMetric = { count: 0 };
+
 function fakeMetrics(retries: string[]): Metrics {
   return {
+    outboxDead: () => void deadMetric.count++,
     transaction() {},
     duplicate() {},
     retry: (c: string) => void retries.push(c),
@@ -87,7 +94,7 @@ function fakeQueue(sendBatch: (queue: string, entries: BatchEntry[]) => Promise<
   };
 }
 
-function publisher(outbox: FakeOutbox, queue: QueuePort, retries: string[], options: { batchSize?: number; sendBatchSize?: number } = {}) {
+function publisher(outbox: FakeOutbox, queue: QueuePort, retries: string[], options: { batchSize?: number; sendBatchSize?: number; maxAttempts?: number } = {}) {
   return new OutboxPublisher(fakeUow(outbox), queue, clock, fakeMetrics(retries), silent, {
     queueName: "events.fifo",
     pollMs: 10,
@@ -271,6 +278,78 @@ describe("OutboxPublisher: limite de bytes por lote", () => {
     await publisher(new FakeOutbox(msgs), queue, []).tick();
 
     expect(seen).toEqual([["before"], ["huge"], ["after"]]);
+  });
+});
+
+describe("OutboxPublisher: falha permanente (dead letter)", () => {
+  function withAttempts(id: string, attempts: number, i = 0): OutboxMessage {
+    return OutboxMessage.rehydrate({
+      id,
+      aggregateId: "wallet-1",
+      eventType: "T",
+      payload: { id },
+      occurredAt: new Date(NOW.getTime() - 60_000 + i),
+      attempts,
+      nextAttemptAt: new Date(NOW.getTime() - 60_000),
+    });
+  }
+
+  test.each(["BODY_TOO_LARGE", "InvalidParameterValue", "InvalidMessageContents", "UnsupportedOperation"])(
+    "código permanente %s grava dead sem retry, e o resto do lote é publicado",
+    async (code) => {
+      deadMetric.count = 0;
+      const outbox = new FakeOutbox([withAttempts("bad", 0, 0), withAttempts("good", 0, 1)]);
+      const retries: string[] = [];
+      const queue = fakeQueue(async (_q, entries) => ({
+        ok: entries.filter((e) => e.id !== "bad").map((e) => e.id),
+        failed: [{ id: "bad", code }],
+      }));
+
+      const published = await publisher(outbox, queue, retries).tick();
+
+      expect(published).toBe(1);
+      expect(outbox.dead).toEqual([{ id: "bad", attempts: 0, error: code }]);
+      expect(outbox.released).toEqual([]);
+      expect(retries).toEqual([]);
+      expect(deadMetric.count).toBe(1);
+    },
+  );
+
+  test("código transitório com attempts abaixo do limite continua em retry", async () => {
+    deadMetric.count = 0;
+    const outbox = new FakeOutbox([withAttempts("m", 48)]);
+    const queue = fakeQueue(async () => ({ ok: [], failed: [{ id: "m", code: "InternalError" }] }));
+
+    await publisher(outbox, queue, [], { maxAttempts: 50 }).tick();
+
+    expect(outbox.released).toEqual([{ id: "m", attempts: 49 }]);
+    expect(outbox.dead).toEqual([]);
+    expect(deadMetric.count).toBe(0);
+  });
+
+  test("attempts que chega ao limite (OUTBOX_MAX_ATTEMPTS) vira dead com o último código", async () => {
+    deadMetric.count = 0;
+    const outbox = new FakeOutbox([withAttempts("m", 49)]);
+    const retries: string[] = [];
+    const queue = fakeQueue(async () => ({ ok: [], failed: [{ id: "m", code: "InternalError" }] }));
+
+    await publisher(outbox, queue, retries, { maxAttempts: 50 }).tick();
+
+    expect(outbox.dead).toEqual([{ id: "m", attempts: 50, error: "InternalError" }]);
+    expect(outbox.released).toEqual([]);
+    expect(retries).toEqual([]);
+    expect(deadMetric.count).toBe(1);
+  });
+
+  test("sendBatch que lança também conta para o limite de tentativas", async () => {
+    const outbox = new FakeOutbox([withAttempts("m", 2)]);
+    const queue = fakeQueue(async () => {
+      throw new Error("sqs down");
+    });
+
+    await publisher(outbox, queue, [], { maxAttempts: 3 }).tick();
+
+    expect(outbox.dead).toEqual([{ id: "m", attempts: 3, error: "Error" }]);
   });
 });
 
