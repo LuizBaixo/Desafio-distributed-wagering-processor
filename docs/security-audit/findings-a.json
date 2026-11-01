@@ -235,7 +235,9 @@
       "acceptance": [
         "Teste e2e confirma que 500 devolve apenas {\"error\":{\"code\":\"INTERNAL\",\"message\":\"internal error\"}}"
       ],
-      "issueGroup": "http-hardening"
+      "issueGroup": "http-hardening",
+      "status": "aceito",
+      "statusNote": "informativo; sem ação necessária"
     }
   ],
   "strengths": [

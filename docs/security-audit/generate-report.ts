@@ -28,7 +28,7 @@ const REPORT_TITLE = `${REPORT_NAME} — Distributed Wagering Processor`;
 type Severity = "critica" | "alta" | "media" | "baixa" | "informativa";
 type Category = "1" | "2" | "3" | "4" | "5" | "extra";
 /** Ausente no JSON = "aberto". */
-type Status = "corrigido" | "documentado" | "parcial" | "aberto";
+type Status = "corrigido" | "documentado" | "parcial" | "aceito" | "aberto";
 
 interface Finding {
   id: string;
@@ -45,6 +45,7 @@ interface Finding {
   acceptance: string[];
   issueGroup?: string;
   status?: Status;
+  statusNote?: string;
   fixedIn?: string;
   note?: string;
 }
@@ -101,17 +102,19 @@ const CAT_LABEL: Record<Category, string> = {
   extra: "Testes extras",
 };
 
-const STATUS_ORDER: Status[] = ["corrigido", "parcial", "documentado", "aberto"];
+const STATUS_ORDER: Status[] = ["corrigido", "parcial", "documentado", "aceito", "aberto"];
 const STATUS_LABEL: Record<Status, string> = {
   corrigido: "Corrigido",
   parcial: "Parcial",
   documentado: "Documentado",
+  aceito: "Aceito",
   aberto: "Aberto",
 };
 const STATUS_COLOR: Record<Status, string> = {
   corrigido: "#059669",
   parcial: "#D97706",
   documentado: "#2563EB",
+  aceito: "#6B7280",
   aberto: "#B91C1C",
 };
 
@@ -180,7 +183,9 @@ async function loadAudit(letter: "a" | "b"): Promise<AuditFile> {
 const sevChip = (s: Severity) =>
   `<span class="chip" style="background:${COLOR[s]}">${SEV_LABEL[s]}</span>`;
 
-const statusOf = (f: Finding): Status => f.status ?? "aberto";
+/** Sem status: informativa é 'aceito' por padrão; as demais são 'aberto'. */
+const statusOf = (f: Finding): Status =>
+  f.status ?? (f.severity === "informativa" ? "aceito" : "aberto");
 
 /** Chip de status + hash do commit (fixedIn), quando houver. */
 function statusChip(f: Finding): string {
@@ -190,7 +195,7 @@ function statusChip(f: Finding): string {
 }
 
 function statusCounts(list: Finding[]): Record<Status, number> {
-  const out = { corrigido: 0, documentado: 0, parcial: 0, aberto: 0 };
+  const out: Record<Status, number> = { corrigido: 0, documentado: 0, parcial: 0, aceito: 0, aberto: 0 };
   for (const f of list) out[statusOf(f)]++;
   return out;
 }
@@ -260,9 +265,10 @@ function barSvg(rows: { label: string; counts: Record<Severity, number> }[]): st
   const max = Math.max(1, ...rows.map((r) => SEV_ORDER.reduce((n, s) => n + r.counts[s], 0)));
   const scale = AREA_W / max;
   const legendY = 14;
+  // Legenda começa em x=0 com passo 110: 5 itens cabem na largura do viewBox (580).
   const legend = SEV_ORDER.map((s, i) =>
-    `<rect x="${LABEL_W + i * 78}" y="${legendY - 9}" width="11" height="11" rx="2" fill="${COLOR[s]}"/>` +
-    `<text x="${LABEL_W + i * 78 + 15}" y="${legendY}" font-size="11" fill="#374151">${SEV_LABEL[s]}</text>`,
+    `<rect x="${i * 110}" y="${legendY - 9}" width="11" height="11" rx="2" fill="${COLOR[s]}"/>` +
+    `<text x="${i * 110 + 15}" y="${legendY}" font-size="11" fill="#374151">${SEV_LABEL[s]}</text>`,
   ).join("");
   const body = rows.map((r, i) => {
     const y = 34 + i * ROW_H;
@@ -298,15 +304,15 @@ function statusBarSvg(counts: Record<Status, number>): string {
     return rect;
   }).join("");
   const legend = STATUS_ORDER.map((s, i) =>
-    `<rect x="${i * 160}" y="40" width="12" height="12" rx="2" fill="${STATUS_COLOR[s]}"/>` +
-    `<text x="${i * 160 + 17}" y="51" font-size="12" fill="#111827">${STATUS_LABEL[s]}: ${counts[s]}</text>`,
+    `<rect x="${i * 128}" y="40" width="12" height="12" rx="2" fill="${STATUS_COLOR[s]}"/>` +
+    `<text x="${i * 128 + 17}" y="51" font-size="12" fill="#111827">${STATUS_LABEL[s]}: ${counts[s]}</text>`,
   ).join("");
   return `<svg viewBox="0 0 ${W} 60" width="100%" role="img" aria-label="Achados por status">${bar}${legend}</svg>`;
 }
 
 function statusSummaryLine(list: Finding[]): string {
   const c = statusCounts(list);
-  return `${c.corrigido} corrigidos, ${c.parcial} parciais, ${c.documentado} documentados, ${c.aberto} abertos`;
+  return `${c.corrigido} corrigidos, ${c.parcial} parciais, ${c.documentado} documentados, ${c.aceito} aceitos, ${c.aberto} abertos`;
 }
 
 // ---------- seções do relatório ----------
