@@ -99,6 +99,8 @@ export class WagerEngine {
             ctx,
           ),
         );
+        // Dependentes pendentes não devem esperar o backoff para descobrir REFERENCE_NOT_PROCESSED.
+        await scope.transactions.markDependentsDue(tx.providerId, tx.externalTransactionId, now);
         return this.view(tx, false);
       }
 

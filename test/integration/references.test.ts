@@ -165,6 +165,27 @@ describe("references that arrive late", () => {
     expect(await balance()).toBe("975.00");
   });
 
+  test("the referenced BET arrives and is REJECTED: the pending REFUND is made due too", async () => {
+    const bet = cmd({ money: money("5000.00") }); // acima do saldo de 1000.00
+    const refund = reversal(Kind.Refund, bet, "5000.00");
+
+    const pending = await postWager(baseUrl, refund);
+    expect(pending.status).toBe(202);
+    const waiting = await ownerPool().query(`SELECT next_attempt_at > now() AS future FROM wager_transactions WHERE id = $1`, [pending.body.transactionId]);
+    expect(waiting.rows[0].future).toBe(true);
+
+    const rejected = await postWager(baseUrl, bet);
+    expect(rejected.status).toBe(422);
+    expect(rejected.body.failureCode).toBe("INSUFFICIENT_FUNDS");
+
+    const due = await ownerPool().query(
+      `SELECT next_attempt_at <= now() AS due, status FROM wager_transactions WHERE id = $1`,
+      [pending.body.transactionId],
+    );
+    expect(due.rows[0]).toEqual({ due: true, status: "PENDING_REFERENCE" });
+    expect(await balance()).toBe("1000.00");
+  });
+
   test("a chain out of order: ROLLBACK of a REFUND whose BET has not arrived is pending", async () => {
     const bet = cmd({ money: money("25.00") });
     const refund = reversal(Kind.Refund, bet);
