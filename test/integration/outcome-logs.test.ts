@@ -80,6 +80,29 @@ describe("SubmitWagerTransaction outcome logs", () => {
   });
 });
 
+describe("inbox payload mismatch", () => {
+  test("same messageId with another hash: acked as duplicate, warn log, duplicates_detected_total{inbox,conflict}", async () => {
+    const w = await createWalletDirect("1000.00");
+    const cmd = buildWagerCommand({ walletId: w.walletId, playerId: w.playerId });
+    const inbox = (payloadHash: string) => ({ consumerName: "c", messageId: "same-id", payloadHash });
+    await h.submit.execute(cmd, { correlationId: "same-id", inbox: inbox("a".repeat(64)) });
+    const dup = await h.submit.execute(cmd, { correlationId: "same-id", inbox: inbox("b".repeat(64)) });
+    const same = await h.submit.execute(cmd, { correlationId: "same-id", inbox: inbox("a".repeat(64)) });
+    expect(dup).toMatchObject({ kind: "duplicateMessage" });
+    expect(same).toMatchObject({ kind: "duplicateMessage" });
+
+    const metrics = await h.metrics.registry.metrics();
+    expect(metrics).toContain('duplicates_detected_total{source="inbox",result="conflict"} 1');
+    expect(metrics).toContain('duplicates_detected_total{source="inbox",result="message"} 1');
+    const warns = log.at("warn");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.obj).toMatchObject({ messageId: "same-id", walletId: w.walletId, providerId: cmd.providerId });
+    expect(log.dump()).not.toMatch(/amount|balance/i);
+    await h.close();
+    expect(await ownerPool().query(`SELECT 1 FROM wallet_ledger_entries WHERE wallet_id = $1 AND direction = 'DEBIT'`, [w.walletId])).toHaveProperty("rowCount", 1);
+  });
+});
+
 describe("pending worker outcome logs", () => {
   test("logs one line per resolved item", async () => {
     const w = await createWalletDirect("1000.00");

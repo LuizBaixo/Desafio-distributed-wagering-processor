@@ -44,8 +44,11 @@ export interface LedgerRepository {
 }
 
 export interface InboxRepository {
-  /** `INSERT ... ON CONFLICT DO NOTHING`. */
-  tryReceive(m: InboxMessage): Promise<"new" | "duplicate">;
+  /**
+   * `INSERT ... ON CONFLICT DO NOTHING`. `duplicate`: messageId já visto com o mesmo payload_hash.
+   * `conflict`: messageId já visto com payload_hash diferente (nada é gravado).
+   */
+  tryReceive(m: InboxMessage): Promise<"new" | "duplicate" | "conflict">;
 }
 
 export interface OutboxRepository {

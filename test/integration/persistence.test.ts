@@ -209,6 +209,19 @@ describe("inbox", () => {
     expect(await uow.run((s) => s.inbox.tryReceive(msg()))).toBe("new");
     expect(await uow.run((s) => s.inbox.tryReceive(msg()))).toBe("duplicate");
   });
+
+  test("tryReceive flags a repeated messageId whose payload_hash differs as conflict", async () => {
+    const msg = (payloadHash: string) =>
+      InboxMessage.receive({
+        messageId: "m2",
+        consumerName: "wager-transactions-consumer",
+        payloadHash,
+        receivedAt: new Date(),
+      });
+    expect(await uow.run((s) => s.inbox.tryReceive(msg(hash)))).toBe("new");
+    expect(await uow.run((s) => s.inbox.tryReceive(msg("f".repeat(64))))).toBe("conflict");
+    expect(await uow.run((s) => s.inbox.tryReceive(msg(hash)))).toBe("duplicate");
+  });
 });
 
 describe("outbox", () => {

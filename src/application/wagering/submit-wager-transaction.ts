@@ -20,7 +20,8 @@ export interface SubmitContext extends EventContextSeed {
   inbox?: { consumerName: string; messageId: string; payloadHash: string };
 }
 
-export type SubmitResult = WagerOutcome | { kind: "duplicateMessage" };
+/** `payloadMismatch`: o messageId já tinha sido recebido com outro payload_hash (ack mantido, mas sinalizado). */
+export type SubmitResult = WagerOutcome | { kind: "duplicateMessage"; payloadMismatch?: boolean };
 
 /** Constraints cuja violação é uma corrida legítima de idempotência (Design §8, nota final). */
 const RACE_CONSTRAINTS = ["wager_tx_provider_idempotency_uq", "wager_tx_provider_external_uq"];
@@ -67,6 +68,7 @@ export class SubmitWagerTransaction {
     }
 
     this.record(result, cmd, source);
+    if (result.kind === "duplicateMessage" && result.payloadMismatch) this.warnPayloadMismatch(cmd, ctx);
     this.logOutcome(result, cmd, ctx, source);
     this.metrics.observeProcessing((performance.now() - startedAt) / 1000, source);
     return result;
@@ -81,6 +83,7 @@ export class SubmitWagerTransaction {
         InboxMessage.receive({ ...ctx.inbox, receivedAt: now }),
       );
       if (received === "duplicate") return { kind: "duplicateMessage" };
+      if (received === "conflict") return { kind: "duplicateMessage", payloadMismatch: true };
     }
 
     // Passo 4: lock da wallet ANTES de qualquer leitura de idempotência.
@@ -172,6 +175,20 @@ export class SubmitWagerTransaction {
     }
   }
 
+  /** messageId repetido com payload diferente. Sem payload nem valores no log. */
+  private warnPayloadMismatch(cmd: WagerCommand, ctx: SubmitContext): void {
+    this.logger.warn(
+      {
+        source: "sqs",
+        correlationId: ctx.correlationId,
+        messageId: ctx.inbox?.messageId,
+        walletId: cmd.walletId,
+        providerId: cmd.providerId,
+      },
+      "inbox messageId repeated with a different payload hash; acknowledged as duplicate",
+    );
+  }
+
   /** Uma linha info por resultado, depois do commit. Nunca loga valores monetários nem o payload. */
   private logOutcome(result: SubmitResult, cmd: WagerCommand, ctx: SubmitContext, source: "http" | "sqs"): void {
     const base = {
@@ -213,7 +230,7 @@ export class SubmitWagerTransaction {
   private record(result: SubmitResult, cmd: WagerCommand, source: "http" | "sqs"): void {
     switch (result.kind) {
       case "duplicateMessage":
-        this.metrics.duplicate("inbox", "message");
+        this.metrics.duplicate("inbox", result.payloadMismatch ? "conflict" : "message");
         return;
       case "conflict":
         this.metrics.duplicate(source, "conflict");
