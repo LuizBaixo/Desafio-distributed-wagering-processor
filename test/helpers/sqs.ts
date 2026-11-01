@@ -1,4 +1,5 @@
 import {
+  CreateQueueCommand,
   DeleteMessageCommand,
   GetQueueAttributesCommand,
   GetQueueUrlCommand,
@@ -7,11 +8,11 @@ import {
   SendMessageCommand,
 } from "@aws-sdk/client-sqs";
 import type { WagerCommand } from "../../src/application/wagering/wager-command";
-import { TEST_SQS_ENDPOINT } from "./env";
+import { TEST_EVENTS_QUEUE, TEST_SQS_ENDPOINT, TEST_WAGER_DLQ, TEST_WAGER_QUEUE } from "./env";
 
-export const WAGER_QUEUE = "wager-transactions.fifo";
-export const WAGER_DLQ = "wager-transactions-dlq.fifo";
-export const EVENTS_QUEUE = "wallet-events.fifo";
+export const WAGER_QUEUE = TEST_WAGER_QUEUE;
+export const WAGER_DLQ = TEST_WAGER_DLQ;
+export const EVENTS_QUEUE = TEST_EVENTS_QUEUE;
 
 export const sqsClient = new SQSClient({
   endpoint: TEST_SQS_ENDPOINT,
@@ -19,8 +20,41 @@ export const sqsClient = new SQSClient({
   credentials: { accessKeyId: "test", secretAccessKey: "test" },
 });
 
+let ensuredQueues: Promise<void> | undefined;
+
+/**
+ * Cria as filas desta execução (mesmos atributos do `infra/ministack/init-sqs.sh`): DLQ, depois a principal
+ * com redrive após 5 recebimentos, depois a de eventos. Idempotente e memoizada por processo; recriar com
+ * os mesmos atributos não falha.
+ */
+export function ensureTestQueues(): Promise<void> {
+  ensuredQueues ??= createTestQueues();
+  return ensuredQueues;
+}
+
+async function createTestQueues(): Promise<void> {
+  const fifo = { FifoQueue: "true", ContentBasedDeduplication: "false" };
+  await sqsClient.send(new CreateQueueCommand({ QueueName: WAGER_DLQ, Attributes: fifo }));
+  const dlq = await sqsClient.send(new GetQueueAttributesCommand({ QueueUrl: await rawQueueUrl(WAGER_DLQ), AttributeNames: ["QueueArn"] }));
+  await sqsClient.send(
+    new CreateQueueCommand({
+      QueueName: WAGER_QUEUE,
+      Attributes: {
+        ...fifo,
+        RedrivePolicy: JSON.stringify({ deadLetterTargetArn: dlq.Attributes!["QueueArn"], maxReceiveCount: 5 }),
+      },
+    }),
+  );
+  await sqsClient.send(new CreateQueueCommand({ QueueName: EVENTS_QUEUE, Attributes: fifo }));
+}
+
+async function rawQueueUrl(name: string): Promise<string> {
+  return (await sqsClient.send(new GetQueueUrlCommand({ QueueName: name }))).QueueUrl!;
+}
+
 const urls = new Map<string, string>();
 export async function queueUrl(name: string): Promise<string> {
+  await ensureTestQueues();
   let url = urls.get(name);
   if (!url) {
     url = (await sqsClient.send(new GetQueueUrlCommand({ QueueName: name }))).QueueUrl!;
@@ -65,10 +99,11 @@ export async function sendRaw(body: string, groupId: string, dedupId: string = c
 }
 
 /**
- * Esvazia as filas de teste lendo e apagando o que está visível. Não usa PurgeQueue: o SQS (e o
- * MiniStack) podem descartar mensagens enviadas até 60 s depois de um purge, o que apagaria
- * mensagens de testes seguintes. Mensagens em voo de um consumidor já parado reaparecem pelo
- * visibility timeout; por isso cada teste usa uma wallet própria.
+ * Esvazia as filas de teste lendo e apagando o que está visível, e espera as mensagens em voo (recebidas e
+ * não apagadas, por exemplo por um processo morto) reaparecerem pelo visibility timeout para apagá-las
+ * também. Sem essa espera, uma mensagem em voo de uma execução anterior reaparece no meio de outro teste e
+ * conta em `queueDepth`. Não usa PurgeQueue: o SQS (e o MiniStack) podem descartar mensagens enviadas até
+ * 60 s depois de um purge, o que apagaria mensagens de testes seguintes.
  */
 export async function purgeAll(): Promise<void> {
   for (const name of [WAGER_QUEUE, WAGER_DLQ, EVENTS_QUEUE]) {
@@ -115,8 +150,20 @@ export async function receiveAll(queue: string, waitSeconds = 1): Promise<Receiv
   }
 }
 
+/** Maior visibility timeout em uso nos testes (30 s do consumidor) mais folga. */
+const DRAIN_TIMEOUT_MS = 45_000;
+
 async function drain(queue: string): Promise<void> {
-  await receiveAll(queue, 0);
+  const deadline = Date.now() + DRAIN_TIMEOUT_MS;
+  for (;;) {
+    await receiveAll(queue, 0);
+    const remaining = await queueDepth(queue);
+    if (remaining === 0) return;
+    if (Date.now() > deadline) {
+      throw new Error(`queue ${queue} still has ${remaining} in-flight or delayed message(s) after ${DRAIN_TIMEOUT_MS} ms`);
+    }
+    await Bun.sleep(500);
+  }
 }
 
 /** Mensagens visíveis + em voo + atrasadas, para afirmar que a fila principal ficou vazia. */

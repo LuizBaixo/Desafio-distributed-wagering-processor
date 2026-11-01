@@ -48,7 +48,7 @@ function publisherFor(
   batching: { batchSize?: number; sendBatchSize?: number } = {},
 ): OutboxPublisher {
   return new OutboxPublisher(uow, queue, container.get<Clock>(CLOCK), metrics ?? container.get<Metrics>(METRICS), logger, {
-    queueName: "wallet-events.fifo",
+    queueName: EVENTS_QUEUE,
     pollMs: 10,
     enabled: false,
     ...batching,
@@ -286,11 +286,11 @@ describe("publisher da outbox", () => {
     const group = crypto.randomUUID();
     const entry = (body: string) => ({ id: crypto.randomUUID(), body, groupId: group, dedupId: crypto.randomUUID() });
 
-    await expect(queue.sendBatch("wallet-events.fifo", Array.from({ length: 11 }, () => entry("{}")))).rejects.toThrow();
+    await expect(queue.sendBatch(EVENTS_QUEUE, Array.from({ length: 11 }, () => entry("{}")))).rejects.toThrow();
 
     const small = entry(JSON.stringify({ eventId: "small", aggregateId: group }));
     const big = entry("x".repeat(262_145));
-    const result = await queue.sendBatch("wallet-events.fifo", [small, big]);
+    const result = await queue.sendBatch(EVENTS_QUEUE, [small, big]);
 
     expect(result.ok).toEqual([small.id]);
     expect(result.failed).toEqual([{ id: big.id, code: "BODY_TOO_LARGE" }]);

@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { migrateUp } from "./db";
-import { TEST_APP_DATABASE_URL, TEST_SQS_ENDPOINT } from "./env";
+import { TEST_APP_DATABASE_URL, TEST_QUEUE_ENV, TEST_SQS_ENDPOINT } from "./env";
+import { ensureTestQueues } from "./sqs";
 
 export interface AppProcess {
   baseUrl: string;
@@ -30,6 +31,7 @@ const MAX_STDERR_CHARS = 8_000;
  */
 export async function spawnApp(opts: SpawnAppOptions): Promise<AppProcess> {
   await migrateUp();
+  await ensureTestQueues();
 
   const proc = Bun.spawn(["bun", "run", "src/main.ts"], {
     cwd: APP_DIR,
@@ -45,6 +47,7 @@ export async function spawnApp(opts: SpawnAppOptions): Promise<AppProcess> {
       AWS_ACCESS_KEY_ID: "test",
       AWS_SECRET_ACCESS_KEY: "test",
       LOG_LEVEL: "error",
+      ...TEST_QUEUE_ENV,
       ...opts.env,
     },
   });
