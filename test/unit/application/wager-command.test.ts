@@ -46,6 +46,18 @@ describe("parseWagerCommand", () => {
     });
   });
 
+  test("playerId e walletId em maiúsculas voltam em minúsculas", () => {
+    const cmd = parseWagerCommand(
+      withBody({
+        playerId: "0192F28F-5DC0-7D58-BDB2-814AD6A0F4A1",
+        walletId: "0192F291-27DD-7D3F-8071-5F8685DEEF37",
+      }),
+      KEY,
+    );
+    expect(cmd.playerId).toBe("0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1");
+    expect(cmd.walletId).toBe("0192f291-27dd-7d3f-8071-5f8685deef37");
+  });
+
   test("sem Idempotency-Key dá INVALID_PAYLOAD", () => {
     const err = thrownOf(() => parseWagerCommand(validBody, undefined));
     expect(err).toBeInstanceOf(InvalidPayloadError);

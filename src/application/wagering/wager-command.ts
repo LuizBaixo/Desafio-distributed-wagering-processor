@@ -90,8 +90,9 @@ export function parseWagerCommand(body: unknown, idempotencyKey: string | undefi
     providerId: data.providerId,
     externalTransactionId: data.externalTransactionId,
     idempotencyKey,
-    playerId: data.playerId,
-    walletId: data.walletId,
+    // Postgres devolve UUID em minúsculas; normalizar evita WALLET_PLAYER_MISMATCH falso e hash divergente.
+    playerId: data.playerId.toLowerCase(),
+    walletId: data.walletId.toLowerCase(),
     roundId: data.roundId,
     gameId: data.gameId,
     kind: data.kind as WagerCommand["kind"],
