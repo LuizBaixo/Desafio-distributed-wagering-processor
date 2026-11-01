@@ -7,6 +7,10 @@ import { createLogger } from "./infrastructure/observability/logger";
 import { PersistenceModule } from "./infrastructure/persistence/persistence.module";
 import { CreateWallet } from "./application/wallet/create-wallet";
 import { WalletQueries } from "./application/wallet/wallet-queries";
+import { ReconcileWallet } from "./application/wallet/reconcile-wallet";
+import { LOGGER, type Logger } from "./application/ports/logger";
+import { METRICS } from "./application/ports/tokens";
+import type { Metrics } from "./application/ports/metrics";
 import { CLOCK, ID_GENERATOR, UNIT_OF_WORK } from "./application/ports/tokens";
 import type { Clock } from "./application/ports/clock";
 import type { IdGenerator } from "./application/ports/id-generator";
@@ -40,6 +44,13 @@ export class AppModule {
           inject: [UNIT_OF_WORK],
           useFactory: (uow: UnitOfWork) => new WalletQueries(uow),
         },
+        {
+          provide: ReconcileWallet,
+          inject: [UNIT_OF_WORK, LOGGER, METRICS],
+          useFactory: (uow: UnitOfWork, logger: Logger, metrics: Metrics) =>
+            new ReconcileWallet(uow, logger, metrics),
+        },
+        { provide: LOGGER, useFactory: () => createLogger() },
         { provide: ERROR_LOGGER, useFactory: () => createLogger() },
         { provide: APP_FILTER, useClass: HttpErrorFilter },
       ],

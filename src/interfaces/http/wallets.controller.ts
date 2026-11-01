@@ -8,6 +8,7 @@ import {
   WalletQueries,
   type LedgerPage,
 } from "../../application/wallet/wallet-queries";
+import { ReconcileWallet, type ReconciliationView } from "../../application/wallet/reconcile-wallet";
 import { decodeCursor, encodeCursor } from "./cursor";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -23,6 +24,7 @@ export class WalletsController {
   constructor(
     private readonly createWallet: CreateWallet,
     private readonly queries: WalletQueries,
+    private readonly reconcileWallet: ReconcileWallet,
   ) {}
 
   @Post()
@@ -67,6 +69,14 @@ export class WalletsController {
       items: page.items,
       nextCursor: page.nextSeq !== null ? encodeCursor(page.nextSeq) : null,
     };
+  }
+
+  @Post(":walletId/reconciliation")
+  @HttpCode(200)
+  async reconcile(@Param("walletId", ParseUUIDPipe) walletId: string): Promise<ReconciliationView> {
+    const view = await this.reconcileWallet.execute(walletId);
+    if (!view) throw new NotFoundError("wallet not found");
+    return view;
   }
 }
 
