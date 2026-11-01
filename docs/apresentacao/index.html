@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Distributed Wagering Processor: apresentação</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0f1419;
+  --fg: #e6edf3;
+  --muted: #8b949e;
+  --ok: #3fb950;
+  --fail: #f85149;
+  --pending: #d29922;
+  --accent: #58a6ff;
+  --line: #30363d;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  overflow: hidden;
+}
+[hidden] { display: none !important; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+
+.slide {
+  position: fixed;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  padding: 6vh 8vw;
+  overflow: auto;
+}
+.slide.active { display: flex; }
+
+h1 { font-size: clamp(2.2rem, 5vw, 4.5rem); line-height: 1.1; margin: 0 0 0.4em; }
+h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6em; }
+
+.progress {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--line);
+  z-index: 10;
+}
+.progress span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.counter {
+  position: fixed;
+  right: 1.5vw;
+  bottom: 1.5vh;
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.9rem;
+  z-index: 10;
+}
+.hint { color: var(--muted); font-size: clamp(1rem, 1.6vw, 1.25rem); }
+.help-btn {
+  align-self: flex-start;
+  margin-top: 2rem;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+  background: transparent;
+  color: var(--fg);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+.help {
+  position: fixed;
+  right: 1.5vw;
+  bottom: 4vh;
+  max-width: 22rem;
+  padding: 1rem 1.25rem;
+  background: #161b22;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  z-index: 20;
+}
+.help h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
+.help ul { margin: 0; padding-left: 1.1rem; line-height: 1.6; }
+.help code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+
+@media (max-width: 700px) {
+  .slide { padding: 6vh 6vw; }
+  h1 { font-size: 2rem; }
+  h2 { font-size: 1.6rem; }
+}
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress" aria-hidden="true"><span></span></div>
+<div class="counter" id="counter" aria-live="polite">1 / 14</div>
+
+<section class="slide" id="slide-1" aria-label="Distributed Wagering Processor">
+  <h1>Distributed Wagering Processor</h1>
+  <p class="hint">Role, clique ou use as setas.</p>
+  <button class="help-btn" id="help-btn" type="button" aria-expanded="false" aria-controls="help" aria-label="Atalhos do teclado">?</button>
+</section>
+
+<section class="slide" id="slide-2" aria-label="O problema">
+  <h2>O problema</h2>
+</section>
+
+<section class="slide" id="slide-3" aria-label="O que pode dar errado">
+  <h2>O que pode dar errado</h2>
+</section>
+
+<section class="slide" id="slide-4" aria-label="Duas apostas, um saldo">
+  <h2>Duas apostas, um saldo</h2>
+</section>
+
+<section class="slide" id="slide-5" aria-label="A mesma aposta 50 vezes">
+  <h2>A mesma aposta 50 vezes</h2>
+</section>
+
+<section class="slide" id="slide-6" aria-label="Crash no pior momento">
+  <h2>Crash no pior momento</h2>
+</section>
+
+<section class="slide" id="slide-7" aria-label="Referência antes da aposta">
+  <h2>Referência antes da aposta</h2>
+</section>
+
+<section class="slide" id="slide-8" aria-label="Nenhum evento perdido">
+  <h2>Nenhum evento perdido</h2>
+</section>
+
+<section class="slide" id="slide-9" aria-label="O banco é o juiz">
+  <h2>O banco é o juiz</h2>
+</section>
+
+<section class="slide" id="slide-10" aria-label="Provado, não prometido">
+  <h2>Provado, não prometido</h2>
+</section>
+
+<section class="slide" id="slide-11" aria-label="Sob carga">
+  <h2>Sob carga</h2>
+</section>
+
+<section class="slide" id="slide-12" aria-label="Arquitetura">
+  <h2>Arquitetura</h2>
+</section>
+
+<section class="slide" id="slide-13" aria-label="Decisões e trade-offs">
+  <h2>Decisões e trade-offs</h2>
+</section>
+
+<section class="slide" id="slide-14" aria-label="Rode você mesmo">
+  <h2>Rode você mesmo</h2>
+</section>
+
+<div class="help" id="help" role="dialog" aria-label="Atalhos" hidden>
+  <h2>Atalhos</h2>
+  <ul>
+    <li><code>→</code> <code>↓</code> <code>PageDown</code> <code>Espaço</code>: avança</li>
+    <li><code>←</code> <code>↑</code> <code>PageUp</code>: volta</li>
+    <li><code>Home</code> / <code>End</code>: primeiro / último</li>
+    <li>Clique: avança. <code>Shift</code>+clique: volta</li>
+    <li>Roda do mouse ou trackpad, e swipe no celular</li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var slides = Array.prototype.slice.call(document.querySelectorAll("section.slide"));
+  var total = slides.length;
+  var current = 0;
+  var bar = document.querySelector("#progress span");
+  var counter = document.getElementById("counter");
+  var helpBtn = document.getElementById("help-btn");
+  var help = document.getElementById("help");
+
+  // Vai para o slide n (1 a total). data-step no body guarda o índice atual, base 1.
+  function go(n) {
+    var t = Math.min(Math.max(Math.round(Number(n)) || 1, 1), total);
+    if (t !== current) {
+      slides.forEach(function (s) { s.classList.remove("active"); });
+      var el = slides[t - 1];
+      void el.offsetWidth; // reflow: reinicia as animações CSS do slide
+      el.classList.add("active");
+      current = t;
+      bar.style.width = (t / total * 100) + "%";
+      counter.textContent = t + " / " + total;
+      document.body.setAttribute("data-step", String(t));
+    }
+    try { history.replaceState(null, "", "#slide-" + t); } catch (e) { /* file:// em alguns navegadores */ }
+  }
+
+  function next() { go(current + 1); }
+  function prev() { go(current - 1); }
+
+  // Hash inválido (#slide-99, #xyz) abre no slide 1.
+  function fromHash() {
+    var m = /^#slide-(\d+)$/.exec(location.hash);
+    var n = m ? Number(m[1]) : 1;
+    return n >= 1 && n <= total ? n : 1;
+  }
+
+  function closeHelp() {
+    help.hidden = true;
+    helpBtn.setAttribute("aria-expanded", "false");
+  }
+
+  helpBtn.addEventListener("click", function () {
+    var open = help.hidden;
+    help.hidden = !open;
+    helpBtn.setAttribute("aria-expanded", String(open));
+  });
+
+  // Teclado
+  document.addEventListener("keydown", function (e) {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === "Escape") { closeHelp(); return; }
+    var tag = e.target && e.target.tagName;
+    var onControl = tag === "BUTTON" || tag === "A" || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    switch (e.key) {
+      case "ArrowRight": case "ArrowDown": case "PageDown":
+        e.preventDefault(); next(); break;
+      case " ":
+        if (onControl) return; // Espaço ativa o botão focado, não avança
+        e.preventDefault(); next(); break;
+      case "ArrowLeft": case "ArrowUp": case "PageUp":
+        e.preventDefault(); prev(); break;
+      case "Home":
+        e.preventDefault(); go(1); break;
+      case "End":
+        e.preventDefault(); go(total); break;
+    }
+  });
+
+  // Clique: avança; Shift+clique volta. Ignora links, código, controles e texto selecionado.
+  document.addEventListener("click", function (e) {
+    if (e.target.closest && e.target.closest("a, button, pre, code, input, textarea, select, label, summary, .help")) return;
+    var sel = window.getSelection ? String(window.getSelection()) : "";
+    if (sel.length > 0) return;
+    if (e.shiftKey) prev(); else next();
+  });
+
+  // Roda do mouse e trackpad. Um gesto (inclusive a inércia do trackpad) avança no máximo 1 slide:
+  // depois de aceitar um evento, ignora tudo até 700 ms sem nenhum evento de roda.
+  var wheelLocked = false;
+  var wheelQuiet = null;
+  window.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    clearTimeout(wheelQuiet);
+    wheelQuiet = setTimeout(function () { wheelLocked = false; }, 700);
+    if (wheelLocked) return;
+    if (e.deltaY > 20) { next(); wheelLocked = true; }
+    else if (e.deltaY < -20) { prev(); wheelLocked = true; }
+  }, { passive: false });
+
+  // Toque: swipe acima de 50 px, pelo eixo dominante.
+  var tx = null, ty = null;
+  document.addEventListener("touchstart", function (e) {
+    tx = e.touches[0].clientX; ty = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener("touchend", function (e) {
+    if (tx === null) return;
+    var p = e.changedTouches[0];
+    var dx = p.clientX - tx, dy = p.clientY - ty;
+    tx = ty = null;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) <= 50) return;
+    var forward = Math.abs(dx) > Math.abs(dy) ? dx < 0 : dy < 0;
+    if (forward) next(); else prev();
+  }, { passive: true });
+
+  window.addEventListener("hashchange", function () { go(fromHash()); });
+
+  go(fromHash());
+})();
+</script>
+</body>
+</html>

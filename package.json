@@ -16,7 +16,8 @@
     "test:load": "bun run scripts/load-test.ts",
     "dlq:list": "bun run scripts/dlq.ts list",
     "dlq:redrive": "bun run scripts/dlq.ts redrive",
-    "bench:outbox": "bun run scripts/outbox-capacity.ts"
+    "bench:outbox": "bun run scripts/outbox-capacity.ts",
+    "check:apresentacao": "bun run docs/apresentacao/check.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "^3.1161.0",
