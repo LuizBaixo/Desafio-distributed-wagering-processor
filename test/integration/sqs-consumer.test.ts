@@ -86,6 +86,21 @@ describe("SQS consumer: happy path and deduplication", () => {
     expect(await receiveAll(WAGER_DLQ)).toHaveLength(0);
   });
 
+  test("after processing a message, the inbox row has processed_at set (= received_at)", async () => {
+    await startConsumer();
+    const cmd = bet();
+    await sendWager(cmd);
+    await waitProcessed(cmd.externalTransactionId);
+    await waitQueueEmpty();
+
+    const { rows } = await ownerPool().query<{ processed_at: Date | null; received_at: Date }>(
+      `SELECT processed_at, received_at FROM inbox_messages`,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.processed_at).not.toBeNull();
+    expect(rows[0]!.processed_at!.getTime()).toBe(rows[0]!.received_at.getTime());
+  });
+
   test("the same messageId resent with another dedup id: the inbox catches it, a single debit", async () => {
     await startConsumer();
     const cmd = bet();

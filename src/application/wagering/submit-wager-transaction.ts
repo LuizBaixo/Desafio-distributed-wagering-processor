@@ -94,9 +94,10 @@ export class SubmitWagerTransaction {
 
     // Inbox primeiro (deduplica a entrega): duplicada encerra sem tocar em mais nada.
     if (ctx.inbox) {
-      const received = await scope.inbox.tryReceive(
-        InboxMessage.receive({ ...ctx.inbox, receivedAt: now }),
-      );
+      // Inbox e processamento compartilham a transação: se a linha entrou, foi processada.
+      const message = InboxMessage.receive({ ...ctx.inbox, receivedAt: now });
+      message.markProcessed(now);
+      const received = await scope.inbox.tryReceive(message);
       if (received === "duplicate") return { kind: "duplicateMessage" };
       if (received === "conflict") return { kind: "duplicateMessage", payloadMismatch: true };
     }

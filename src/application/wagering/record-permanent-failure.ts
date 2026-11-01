@@ -59,9 +59,9 @@ export class RecordPermanentFailure {
         if ((await scope.transactions.findByExternalId(cmd.providerId, cmd.externalTransactionId)) !== null) return "exists";
 
         const payloadHash = wagerPayloadHash(cmd);
-        const received = await scope.inbox.tryReceive(
-          InboxMessage.receive({ consumerName: ctx.consumerName, messageId: ctx.messageId, payloadHash, receivedAt: now }),
-        );
+        const message = InboxMessage.receive({ consumerName: ctx.consumerName, messageId: ctx.messageId, payloadHash, receivedAt: now });
+        message.markProcessed(now);
+        const received = await scope.inbox.tryReceive(message);
         if (received !== "new") return "exists";
 
         const tx = WagerTransaction.create({
