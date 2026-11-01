@@ -48,7 +48,7 @@ Compose local: `postgres`, `ministack`, `sqs-init` (cria as filas e sai), `migra
 - `NUMERIC` e `bigint` precisam de leitura exata como string. Com SQL explícito, o tipo de cada coluna é conhecido no ponto de leitura.
 - O mapeamento fica num único lugar (`mappers.ts`): linha → `rehydrate`, e de volta para `INSERT`/`UPDATE`.
 
-Migrations: uma migration (`Migration20261031000001_initial`), SQL escrito à mão, com `up` e `down`, `transactional: true`, lista explícita (`migrationsList`), sem varredura de arquivos. Verificado com `migration:down` e `migration:up` contra a infra de teste.
+Migrations: `Migration20261031000001_initial` (schema) e `Migration20261101000001_ledger_consistency` (FKs compostas do ledger), SQL escrito à mão, com `up` e `down`, `transactional: true`, lista explícita (`migrationsList`), sem varredura de arquivos. Verificado com `migration:down` e `migration:up` contra a infra de teste.
 
 ## 4. Dinheiro
 
@@ -91,6 +91,8 @@ Cada invariante do desafio tem um mecanismo no banco, não só no código.
 | Lançamento imutável | Trigger `ledger_immutable` (`BEFORE UPDATE OR DELETE`), e o papel `wagering_app` sem `UPDATE`/`DELETE` |
 | No máximo um lançamento por wallet por transação | `UNIQUE (wallet_id, transaction_id)` |
 | Aritmética do lançamento | `CHECK` de `balance_after` em `CREDIT` e `DEBIT` |
+| Lançamento na moeda da própria wallet | FK composta `ledger_wallet_currency_fk`: `(wallet_id, currency)` -> `wallets (id, currency)`, com `UNIQUE (id, currency)` em `wallets` |
+| Lançamento só aponta para transação da mesma wallet | FK composta `ledger_tx_wallet_fk`: `(transaction_id, wallet_id)` -> `wager_transactions (id, wallet_id)`, com `UNIQUE (id, wallet_id)` em `wager_transactions` |
 | Idempotência persistente | `UNIQUE (provider_id, idempotency_key)` |
 | Um `externalTransactionId` por provedor | `UNIQUE (provider_id, external_transaction_id)` |
 | Uma reversão por referência | Índice único parcial em `reference_transaction_id` para `REFUND`/`ROLLBACK` `PROCESSED` |
@@ -103,6 +105,8 @@ Cada invariante do desafio tem um mecanismo no banco, não só no código.
 | Permissões do runtime | `wagering_app` só tem `SELECT, INSERT, UPDATE` nas tabelas (sem `DELETE`) |
 
 Papéis: `wagering_owner` é dono do schema e roda as migrations. `wagering_app` é o runtime. O init (`infra/postgres/init-roles.sql`) cria os dois.
+
+A migration das FKs compostas valida os dados antes: se houver lançamento com moeda diferente da wallet ou apontando para transação de outra wallet, ela falha com `ledger_consistency: ...` dizendo o que corrigir, sem alterar nada.
 
 Erros de constraint são traduzidos no caso de uso: `23505` em `(player_id, currency)` vira `DuplicateWalletError`; `23505` em `(provider_id, idempotency_key)` faz uma nova tentativa da transação (no máximo duas).
 

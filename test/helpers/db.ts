@@ -108,3 +108,8 @@ export async function closePools(): Promise<void> {
   owner = undefined;
   app = undefined;
 }
+
+/** Reverte só a última migration aplicada. */
+export async function migrateDownLast(): Promise<void> {
+  await withMigrator((orm) => orm.getMigrator().down());
+}

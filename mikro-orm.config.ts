@@ -1,6 +1,7 @@
 import { defineConfig, type Options } from "@mikro-orm/postgresql";
 import { Migrator } from "@mikro-orm/migrations";
 import { Migration20261031000001_initial } from "./src/infrastructure/persistence/migrations/Migration20261031000001_initial";
+import { Migration20261101000001_ledger_consistency } from "./src/infrastructure/persistence/migrations/Migration20261101000001_ledger_consistency";
 
 /**
  * Banco local do `docker-compose.test.yml` (papel dono do schema). Em outros ambientes,
@@ -21,6 +22,7 @@ export function buildMikroOrmConfig(clientUrl: string): Options {
       // Lista explícita: funciona igual sob Bun (sem varredura de arquivos) e em imagens compiladas.
       migrationsList: [
         { name: "Migration20261031000001_initial", class: Migration20261031000001_initial },
+        { name: "Migration20261101000001_ledger_consistency", class: Migration20261101000001_ledger_consistency },
       ],
       transactional: true,
       disableForeignKeys: false,

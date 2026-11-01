@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { Pool } from "pg";
-import { appPool, closePools, migrateDown, migrateUp, ownerPool, resetDb } from "../helpers/db";
+import { appPool, closePools, migrateDown, migrateDownLast, migrateUp, ownerPool, resetDb } from "../helpers/db";
 
 const uuid = () => crypto.randomUUID();
 
@@ -427,5 +427,131 @@ describe("inbox_messages and outbox_messages", () => {
     await appPool().query(`UPDATE outbox_messages SET published_at = now(), locked_until = NULL WHERE id = $1`, [id]);
     const r = await ownerPool().query(`SELECT attempts FROM outbox_messages WHERE id = $1`, [id]);
     expect(r.rows[0].attempts).toBe(0);
+  });
+});
+
+const LEDGER_CONSISTENCY_CONSTRAINTS = [
+  "wallets_id_currency_uq",
+  "wager_tx_id_wallet_uq",
+  "ledger_wallet_currency_fk",
+  "ledger_tx_wallet_fk",
+];
+
+async function constraintNames(): Promise<string[]> {
+  const r = await ownerPool().query<{ conname: string }>(
+    `SELECT conname FROM pg_constraint WHERE conname = ANY($1) ORDER BY conname`,
+    [LEDGER_CONSISTENCY_CONSTRAINTS],
+  );
+  return r.rows.map((row) => row.conname);
+}
+
+async function pgError(promise: Promise<unknown>): Promise<{ code?: string; constraint?: string }> {
+  try {
+    await promise;
+  } catch (e) {
+    const err = e as { code?: string; constraint?: string };
+    return { code: err.code, constraint: err.constraint };
+  }
+  return {};
+}
+
+describe("ledger consistency constraints", () => {
+  test("a ledger entry whose currency differs from its wallet is 23503 on ledger_wallet_currency_fk", async () => {
+    const w = await insertWallet(appPool(), { currency: "BRL" });
+    const tx = await insertTx(appPool(), w);
+    const usd = { ...w, currency: "USD" };
+    expect(await pgError(insertLedger(appPool(), usd, tx))).toEqual({ code: "23503", constraint: "ledger_wallet_currency_fk" });
+  });
+
+  test("a ledger entry for wallet B pointing at a transaction of wallet A is 23503 on ledger_tx_wallet_fk", async () => {
+    const a = await insertWallet(appPool());
+    const b = await insertWallet(appPool());
+    const txOfA = await insertTx(appPool(), a);
+    expect(await pgError(insertLedger(appPool(), b, txOfA))).toEqual({ code: "23503", constraint: "ledger_tx_wallet_fk" });
+  });
+
+  test("a consistent ledger entry is still accepted", async () => {
+    const w = await insertWallet(appPool());
+    const tx = await insertTx(appPool(), w);
+    await insertLedger(appPool(), w, tx);
+  });
+
+  test("down, up and up again run clean (the second up is a no-op) and the 4 constraints exist", async () => {
+    await migrateDown();
+    expect(await constraintNames()).toEqual([]);
+    await migrateUp();
+    await migrateUp();
+    expect(await constraintNames()).toEqual([...LEDGER_CONSISTENCY_CONSTRAINTS].sort());
+  });
+
+  test("down of this migration alone drops the 4 constraints and keeps the initial schema", async () => {
+    await migrateDownLast();
+    try {
+      expect(await constraintNames()).toEqual([]);
+      const tables = await ownerPool().query(`SELECT 1 FROM information_schema.tables WHERE table_name = 'wallet_ledger_entries'`);
+      expect(tables.rowCount).toBe(1);
+    } finally {
+      await migrateUp();
+    }
+    expect(await constraintNames()).toEqual([...LEDGER_CONSISTENCY_CONSTRAINTS].sort());
+  });
+
+  test("up over consistent existing data passes", async () => {
+    await migrateDownLast();
+    try {
+      const w = await insertWallet(ownerPool());
+      const tx = await insertTx(ownerPool(), w);
+      await insertLedger(ownerPool(), w, tx);
+      await migrateUp();
+    } finally {
+      await resetDb();
+      await migrateUp();
+    }
+    expect(await constraintNames()).toEqual([...LEDGER_CONSISTENCY_CONSTRAINTS].sort());
+  });
+
+  test("up over inconsistent existing data fails with a clear message and changes nothing", async () => {
+    await migrateDownLast();
+    try {
+      const w = await insertWallet(ownerPool(), { currency: "BRL" });
+      const tx = await insertTx(ownerPool(), w);
+      await insertLedger(ownerPool(), { ...w, currency: "USD" }, tx);
+
+      let message = "no-error";
+      try {
+        await migrateUp();
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message).toContain("ledger_consistency");
+      expect(message).toMatch(/currency/);
+      expect(await constraintNames()).toEqual([]);
+    } finally {
+      await resetDb();
+      await migrateUp();
+    }
+    expect(await constraintNames()).toEqual([...LEDGER_CONSISTENCY_CONSTRAINTS].sort());
+  });
+
+  test("up over a ledger entry whose transaction belongs to another wallet fails with a clear message", async () => {
+    await migrateDownLast();
+    try {
+      const a = await insertWallet(ownerPool());
+      const b = await insertWallet(ownerPool());
+      const txOfA = await insertTx(ownerPool(), a);
+      await insertLedger(ownerPool(), b, txOfA);
+
+      let message = "no-error";
+      try {
+        await migrateUp();
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message).toContain("ledger_consistency");
+      expect(message).toMatch(/transaction/);
+    } finally {
+      await resetDb();
+      await migrateUp();
+    }
   });
 });
