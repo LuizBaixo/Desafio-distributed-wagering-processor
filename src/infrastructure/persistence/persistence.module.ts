@@ -3,6 +3,7 @@ import { MikroORM } from "@mikro-orm/postgresql";
 import { buildMikroOrmConfig } from "../../../mikro-orm.config";
 import { APP_CONFIG, type AppConfig } from "../../config/config";
 import { CLOCK, ID_GENERATOR, METRICS, UNIT_OF_WORK } from "../../application/ports/tokens";
+import type { Metrics } from "../../application/ports/metrics";
 import { PromMetrics } from "../observability/prom-metrics";
 import { SystemClock } from "../system/clock";
 import { Uuid7Generator } from "../system/uuid-generator";
@@ -39,8 +40,8 @@ class OrmLifecycle implements OnApplicationShutdown {
     },
     {
       provide: UNIT_OF_WORK,
-      inject: [MIKRO_ORM],
-      useFactory: (orm: MikroORM) => new MikroUnitOfWork(orm.em),
+      inject: [MIKRO_ORM, METRICS],
+      useFactory: (orm: MikroORM, metrics: Metrics) => new MikroUnitOfWork(orm.em, undefined, metrics),
     },
     { provide: CLOCK, useClass: SystemClock },
     { provide: ID_GENERATOR, useClass: Uuid7Generator },

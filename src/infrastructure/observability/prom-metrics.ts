@@ -40,6 +40,13 @@ export class PromMetrics implements Metrics {
     registers: [this.registry],
   });
 
+  private readonly lockWait = new Histogram({
+    name: "wallet_lock_wait_seconds",
+    help: "Espera pelo lock de wallet (SELECT ... FOR UPDATE)",
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+    registers: [this.registry],
+  });
+
   private readonly outboxLag = new Gauge({
     name: "outbox_lag_seconds",
     help: "Idade do evento pendente mais antigo da outbox",
@@ -77,6 +84,10 @@ export class PromMetrics implements Metrics {
 
   lockConflict(): void {
     this.lockConflicts.inc();
+  }
+
+  observeLockWait(seconds: number): void {
+    this.lockWait.observe(seconds);
   }
 
   setOutboxLag(seconds: number): void {

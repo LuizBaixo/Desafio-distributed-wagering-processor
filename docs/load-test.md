@@ -81,7 +81,7 @@ Na janela medida, o lag máximo fica perto de 33 s porque o lag é a idade do ev
 
 **3. `lock_conflicts_total = 0` não significa que não houve espera.**
 - **O que a métrica conta:** só lock timeout (`55P03`, com `lock_timeout = 5s`), deadlock (`40P01`), serialization failure (`40001`) e conflito de versão. No `hot`, nenhuma espera chegou a 5 s, então não houve conflito.
-- **O que ela não mede:** a espera por lock em si. Para isso falta uma métrica, por exemplo um histograma do tempo entre o início da transação e a obtenção do `FOR UPDATE`.
+- **O que ela não mede:** a espera por lock em si. Para isso, a métrica `wallet_lock_wait_seconds` (adicionada depois deste run) mede essa espera.
 
 **4. `mixed`: o custo das referências é pequeno.** O p50 sobe de 40,7 para 45,4 ms em relação ao `spread`. Isso vem das leituras extras: a resolução da referência e `isReversed`.
 

@@ -1,4 +1,5 @@
 import type { EntityManager } from "@mikro-orm/postgresql";
+import type { Metrics } from "../../application/ports/metrics";
 import type { TransactionScope, UnitOfWork } from "../../application/ports/unit-of-work";
 import "./money.type";
 import { mapPgError } from "./pg-error-mapper";
@@ -15,6 +16,7 @@ export class MikroUnitOfWork implements UnitOfWork {
   constructor(
     private readonly em: EntityManager,
     private readonly lockTimeout: string = DEFAULT_LOCK_TIMEOUT,
+    private readonly metrics?: Metrics,
   ) {}
 
   async run<T>(work: (scope: TransactionScope) => Promise<T>): Promise<T> {
@@ -23,7 +25,7 @@ export class MikroUnitOfWork implements UnitOfWork {
         await tem.execute(`SET LOCAL lock_timeout = '${this.lockTimeout}'`);
         const db = new Db(tem);
         return work({
-          wallets: new PgWalletRepository(db),
+          wallets: new PgWalletRepository(db, this.metrics),
           transactions: new PgWagerTransactionRepository(db),
           ledger: new PgLedgerRepository(db),
           inbox: new PgInboxRepository(db),

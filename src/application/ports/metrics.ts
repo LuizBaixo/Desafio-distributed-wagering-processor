@@ -8,6 +8,8 @@ export interface Metrics {
   retry(component: string): void;
   dlq(): void;
   lockConflict(): void;
+  /** Tempo gasto esperando o lock de wallet (`SELECT ... FOR UPDATE`), inclusive quando termina em erro. */
+  observeLockWait(seconds: number): void;
   setOutboxLag(seconds: number): void;
   observeProcessing(seconds: number, source: MetricSource): void;
   reconciliationMismatch(): void;

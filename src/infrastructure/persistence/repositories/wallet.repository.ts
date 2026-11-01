@@ -1,4 +1,5 @@
 import { ConcurrencyViolationError, DuplicateWalletError } from "../../../application/errors";
+import type { Metrics } from "../../../application/ports/metrics";
 import type { WalletRepository } from "../../../application/ports/repositories";
 import type { Wallet } from "../../../domain/wallet/wallet";
 import { walletFromRow } from "../mappers";
@@ -7,7 +8,10 @@ import type { WalletRow } from "../schemas";
 import type { Db } from "../sql";
 
 export class PgWalletRepository implements WalletRepository {
-  constructor(private readonly db: Db) {}
+  constructor(
+    private readonly db: Db,
+    private readonly metrics?: Metrics,
+  ) {}
 
   async insert(w: Wallet): Promise<void> {
     try {
@@ -26,8 +30,13 @@ export class PgWalletRepository implements WalletRepository {
     return this.select(id, "");
   }
 
-  lockForUpdate(id: string): Promise<Wallet | null> {
-    return this.select(id, " FOR UPDATE");
+  async lockForUpdate(id: string): Promise<Wallet | null> {
+    const started = performance.now();
+    try {
+      return await this.select(id, " FOR UPDATE");
+    } finally {
+      this.metrics?.observeLockWait((performance.now() - started) / 1000);
+    }
   }
 
   lockForShare(id: string): Promise<Wallet | null> {

@@ -350,6 +350,7 @@ describe("correções: re-checagem no limite e isolamento de erro por item", () 
       lockConflict() {},
       setOutboxLag() {},
       observeProcessing() {},
+      observeLockWait() {},
       reconciliationMismatch() {},
     } as unknown as Metrics;
 
