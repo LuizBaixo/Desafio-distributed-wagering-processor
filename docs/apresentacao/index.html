@@ -237,6 +237,11 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 .lead-small { color: var(--muted); font-size: clamp(1rem, 1.6vw, 1.25rem); line-height: 1.5; max-width: 90ch; margin: 0 0 1.2rem; }
 .links { margin: 1.2rem 0 0; padding-left: 1.2rem; line-height: 1.8; font-size: clamp(1rem, 1.6vw, 1.3rem); }
 .links a { color: var(--accent); }
+/* Diagramas grandes (slides 5 a 8): 50% da altura do slide, largura até 900 px; texto escala com o viewBox. */
+.diagram.big { flex: none; width: min(900px, 100%); height: 50vh; overflow: visible; }
+#slide-7 .flow { gap: 5rem; }
+#slide-7 .node { flex: none; min-width: 0; width: min(340px, 40vw); height: 44vh; justify-content: center; padding: 2rem; font-size: 1.5rem; }
+#slide-7 .node strong { font-size: 2.6rem; }
 .diagram .tx-frame { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 8 6; }
 .diagram .ev { transform: translate(var(--dx), var(--dy)); }
 .diagram .ev circle { fill: var(--pending); }
@@ -517,7 +522,7 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 
 <section class="slide" id="slide-5" aria-label="A mesma aposta 50 vezes">
   <h2>A mesma aposta 50 vezes</h2>
-  <svg class="diagram" data-dots viewBox="0 0 600 260" style="max-width: 760px" role="img" aria-label="50 requisições idênticas chegam à wallet: 1 vira débito e 49 voltam como replay.">
+  <svg class="diagram big" data-dots viewBox="100 44 400 200" role="img" aria-label="50 requisições idênticas chegam à wallet: 1 vira débito e 49 voltam como replay.">
     <rect class="box" x="200" y="80" width="200" height="160" rx="10"/>
     <text class="small" x="300" y="108" text-anchor="middle">Wallet</text>
     <text class="debit-label" x="300" y="180" text-anchor="middle">1 débito</text>
@@ -528,12 +533,12 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 
 <section class="slide" id="slide-6" aria-label="Crash no pior momento">
   <h2>Crash no pior momento</h2>
-  <svg class="diagram" viewBox="0 0 960 240" role="img" aria-label="Linha do tempo: commit, depois kill -9; a mensagem volta e a inbox barra a duplicata.">
-    <line class="axis" x1="60" y1="120" x2="900" y2="120"/>
-    <g class="tl" style="--d:0.1s"><circle class="ok-dot" cx="180" cy="120" r="12"/><text x="180" y="88" text-anchor="middle">commit</text><text class="small" x="180" y="165" text-anchor="middle">1 débito</text></g>
-    <g class="tl" style="--d:0.3s"><circle class="fail-dot" cx="400" cy="120" r="12"/><text x="400" y="88" text-anchor="middle">kill -9</text></g>
-    <g class="tl" style="--d:0.5s"><path class="arrow" d="M412 120 C 460 200, 560 200, 618 120"/><text class="small" x="515" y="200" text-anchor="middle">redelivery</text></g>
-    <g class="tl" style="--d:0.7s"><rect class="box fail-box" x="640" y="80" width="200" height="80" rx="8"/><text x="740" y="115" text-anchor="middle">inbox</text><text class="small" x="740" y="140" text-anchor="middle">duplicata barrada</text></g>
+  <svg class="diagram big" viewBox="20 -1 700 280" role="img" aria-label="Linha do tempo: commit, depois kill -9; a mensagem volta e a inbox barra a duplicata.">
+    <line class="axis" x1="60" y1="120" x2="700" y2="120"/>
+    <g class="tl" style="--d:0.1s"><circle class="ok-dot" cx="150" cy="120" r="12"/><text x="150" y="88" text-anchor="middle">commit</text><text class="small" x="150" y="165" text-anchor="middle">1 débito</text></g>
+    <g class="tl" style="--d:0.3s"><circle class="fail-dot" cx="320" cy="120" r="12"/><text x="320" y="88" text-anchor="middle">kill -9</text></g>
+    <g class="tl" style="--d:0.5s"><path class="arrow" d="M332 120 C 370 200, 430 200, 468 120"/><text class="small" x="400" y="200" text-anchor="middle">redelivery</text></g>
+    <g class="tl" style="--d:0.7s"><rect class="box fail-box" x="480" y="80" width="200" height="80" rx="8"/><text x="580" y="115" text-anchor="middle">inbox</text><text class="small" x="580" y="140" text-anchor="middle">duplicata barrada</text></g>
   </svg>
   <p class="lead">O processo morre depois do commit e antes do ack. A mensagem volta, e a inbox <code>(consumer_name, message_id)</code>, na mesma transação, detecta a duplicata. Teste C5: 1 débito só.</p>
 </section>
@@ -555,7 +560,7 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 
 <section class="slide" id="slide-8" aria-label="Nenhum evento perdido">
   <h2>Nenhum evento perdido</h2>
-  <svg class="diagram" viewBox="0 0 960 250" role="img" aria-label="Saldo, ledger e outbox são gravados na mesma transação. Depois do commit, o publicador leva os eventos para a fila.">
+  <svg class="diagram big" viewBox="0 -40 800 320" role="img" aria-label="Saldo, ledger e outbox são gravados na mesma transação. Depois do commit, o publicador leva os eventos para a fila.">
     <rect class="tx-frame" x="40" y="30" width="400" height="180" rx="12"/>
     <text class="small" x="60" y="60">transação</text>
     <g class="tl" style="--d:0.1s"><rect class="box" x="70" y="90" width="110" height="60" rx="8"/><text x="125" y="126" text-anchor="middle">saldo</text></g>
