@@ -70,6 +70,7 @@ function fakeMetrics(retries: string[]): Metrics {
     observeProcessing() {},
     reconciliationMismatch() {},
       reconciliationRun() {},
+    reconciliationError() {},
   } as unknown as Metrics;
 }
 
@@ -211,6 +212,65 @@ describe("OutboxPublisher: envio em lote", () => {
 
     expect(sizes).toEqual([10]);
     expect(published).toBe(10);
+  });
+});
+
+describe("OutboxPublisher: limite de bytes por lote", () => {
+  const KIB = 1024;
+  function sized(id: string, bytes: number, i: number, char = "x"): OutboxMessage {
+    const overhead = Buffer.byteLength('{"pad":""}', "utf8");
+    const unit = Buffer.byteLength(char, "utf8");
+    return OutboxMessage.rehydrate({
+      id,
+      aggregateId: "wallet-1",
+      eventType: "T",
+      payload: { pad: char.repeat(Math.floor((bytes - overhead) / unit)) },
+      occurredAt: new Date(NOW.getTime() - 60_000 + i),
+      attempts: 0,
+      nextAttemptAt: new Date(NOW.getTime() - 60_000),
+    });
+  }
+
+  test("10 entradas de 30 KiB viram 2 chunks (8 + 2): nenhum envio passa de 262144 bytes", async () => {
+    const msgs = Array.from({ length: 10 }, (_, i) => sized(`big-${i}`, 30 * KIB, i));
+    const calls: Array<{ count: number; bytes: number }> = [];
+    const queue = fakeQueue(async (_q, entries) => {
+      calls.push({ count: entries.length, bytes: entries.reduce((a, e) => a + Buffer.byteLength(e.body, "utf8"), 0) });
+      return { ok: entries.map((e) => e.id), failed: [] };
+    });
+
+    const published = await publisher(new FakeOutbox(msgs), queue, []).tick();
+
+    expect(published).toBe(10);
+    expect(calls.map((c) => c.count)).toEqual([8, 2]);
+    for (const c of calls) expect(c.bytes).toBeLessThanOrEqual(262_144);
+  });
+
+  test("conta bytes UTF-8, não caracteres", async () => {
+    // 3 entradas de ~100 KB em UTF-8 (caracteres de 2 bytes): só 2 cabem em 262144 bytes.
+    const msgs = Array.from({ length: 3 }, (_, i) => sized(`utf-${i}`, 100_000, i, "é"));
+    const sizes: number[] = [];
+    const queue = fakeQueue(async (_q, entries) => {
+      sizes.push(entries.length);
+      return { ok: entries.map((e) => e.id), failed: [] };
+    });
+
+    await publisher(new FakeOutbox(msgs), queue, []).tick();
+
+    expect(sizes).toEqual([2, 1]);
+  });
+
+  test("entrada sozinha acima do limite segue isolada, e as vizinhas não são arrastadas", async () => {
+    const msgs = [sized("before", KIB, 0), sized("huge", 262_145, 1), sized("after", KIB, 2)];
+    const seen: string[][] = [];
+    const queue = fakeQueue(async (_q, entries) => {
+      seen.push(entries.map((e) => e.id));
+      return { ok: entries.map((e) => e.id), failed: [] };
+    });
+
+    await publisher(new FakeOutbox(msgs), queue, []).tick();
+
+    expect(seen).toEqual([["before"], ["huge"], ["after"]]);
   });
 });
 

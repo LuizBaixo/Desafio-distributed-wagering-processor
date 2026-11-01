@@ -26,11 +26,47 @@ const DEFAULT_BATCH = 100;
 const DEFAULT_SEND_BATCH = 10;
 const MAX_SEND_BATCH = 10;
 const DEFAULT_LEASE_SECONDS = 30;
+/** Limite do SQS para a soma dos corpos de um `SendMessageBatch` (e para um corpo isolado). */
+const MAX_BATCH_BYTES = 262_144;
+
+interface PreparedMessage {
+  msg: OutboxMessage;
+  body: string;
+  bytes: number;
+}
+
+/**
+ * Divide em lotes de no máximo `maxEntries` entradas e `MAX_BATCH_BYTES` bytes somados (UTF-8).
+ * Uma entrada que sozinha passa do limite fica num lote só dela; o SQS a recusa como `BODY_TOO_LARGE`.
+ */
+function planChunks(items: PreparedMessage[], maxEntries: number): PreparedMessage[][] {
+  const chunks: PreparedMessage[][] = [];
+  let current: PreparedMessage[] = [];
+  let currentBytes = 0;
+  for (const item of items) {
+    const oversize = item.bytes > MAX_BATCH_BYTES;
+    const overflows = current.length >= maxEntries || currentBytes + item.bytes > MAX_BATCH_BYTES;
+    if (current.length > 0 && (oversize || overflows)) {
+      chunks.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(item);
+    currentBytes += item.bytes;
+    if (oversize) {
+      chunks.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
 
 /**
  * Publica a outbox na fila de eventos (Design §14).
  *
- * Cada `tick`: claim com lease (transação curta), divisão em lotes de até 10 e, por lote, um
+ * Cada `tick`: claim com lease (transação curta), divisão em lotes de até 10 entradas e 256 KiB e, por lote, um
  * `SendMessageBatch` seguido de uma única transação com `markPublishedMany` (enviados) e `release`
  * (falhos). Falha de entrada: `scheduleRetry` + `release`, métrica `retry('outbox')`, e os outros lotes
  * seguem. Crash entre send e mark: o lease expira e outra instância republica (at-least-once);
@@ -64,9 +100,12 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
     const sendSize = Math.min(this.options.sendBatchSize ?? DEFAULT_SEND_BATCH, MAX_SEND_BATCH);
     let published = 0;
     let failed = 0;
-    for (let from = 0; from < batch.length; from += sendSize) {
+    const prepared: PreparedMessage[] = batch.map((msg) => {
+      const body = JSON.stringify(msg.payload);
+      return { msg, body, bytes: Buffer.byteLength(body, "utf8") };
+    });
+    for (const chunk of planChunks(prepared, sendSize)) {
       if (shouldStop()) break;
-      const chunk = batch.slice(from, from + sendSize);
       const result = await this.publishChunk(chunk, now);
       published += result.published;
       failed += result.failed;
@@ -85,7 +124,7 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
    * Envia um lote (no máximo 10) e fecha o resultado em uma única transação: `markPublishedMany` nos
    * enviados e `release` nos que falharam. Só o que o SQS confirmou é marcado como publicado.
    */
-  private publishChunk(chunk: OutboxMessage[], now: Date): Promise<{ published: number; failed: number }> {
+  private publishChunk(chunk: PreparedMessage[], now: Date): Promise<{ published: number; failed: number }> {
     return getTracing().withSpan("outbox.publish_batch", { "messaging.batch.size": chunk.length }, async (span) => {
       const r = await this.publishChunkInner(chunk, now);
       span.setAttribute("outbox.published", r.published);
@@ -94,12 +133,13 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
     });
   }
 
-  private async publishChunkInner(chunk: OutboxMessage[], now: Date): Promise<{ published: number; failed: number }> {
+  private async publishChunkInner(prepared: PreparedMessage[], now: Date): Promise<{ published: number; failed: number }> {
     // O `traceparent` vai como atributo da mensagem; o payload do evento fica intocado.
     const traceparent = getTracing().currentTraceparent();
-    const entries: BatchEntry[] = chunk.map((msg) => ({
+    const chunk = prepared.map((p) => p.msg);
+    const entries: BatchEntry[] = prepared.map(({ msg, body }) => ({
       id: msg.id,
-      body: JSON.stringify(msg.payload),
+      body,
       groupId: msg.aggregateId,
       dedupId: msg.id,
       ...(traceparent !== undefined ? { attributes: { traceparent } } : {}),

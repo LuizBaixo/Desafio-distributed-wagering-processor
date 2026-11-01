@@ -112,6 +112,11 @@ export class SqsQueue implements QueuePort {
       else sendable.push({ index, entry });
     });
     if (sendable.length === 0) return { ok, failed };
+    // O SQS recusa o lote inteiro quando a soma dos corpos passa de 256 KiB; quem chama divide por bytes.
+    const totalBytes = sendable.reduce((sum, { entry }) => sum + Buffer.byteLength(entry.body, "utf8"), 0);
+    if (totalBytes > MAX_BODY_BYTES) {
+      throw new Error(`sendBatch bodies total ${totalBytes} bytes, limit is ${MAX_BODY_BYTES}`);
+    }
 
     const QueueUrl = await this.url(queue);
     const res = await this.client

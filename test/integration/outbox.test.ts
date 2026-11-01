@@ -260,6 +260,7 @@ describe("publisher da outbox", () => {
       observeProcessing() {},
       reconciliationMismatch() {},
       reconciliationRun() {},
+      reconciliationError() {},
     } as unknown as Metrics;
     const brokenQueue: QueuePort = {
       receive: async () => [],
@@ -302,6 +303,16 @@ describe("publisher da outbox", () => {
     expect(result.failed).toEqual([{ id: big.id, code: "BODY_TOO_LARGE" }]);
     const received = (await receiveAll(EVENTS_QUEUE, 1)).filter((m) => m.body.includes(group));
     expect(received).toHaveLength(1);
+  });
+
+  test("SqsQueue.sendBatch: soma dos corpos acima de 256 KiB lança, sem enviar nada", async () => {
+    const queue = container.get<QueuePort>(QUEUE_PORT);
+    const group = crypto.randomUUID();
+    const entry = () => ({ id: crypto.randomUUID(), body: JSON.stringify({ g: group, pad: "x".repeat(30 * 1024) }), groupId: group, dedupId: crypto.randomUUID() });
+
+    await expect(queue.sendBatch(EVENTS_QUEUE, Array.from({ length: 9 }, entry))).rejects.toThrow(/limit/);
+
+    expect((await receiveAll(EVENTS_QUEUE, 1)).filter((m) => m.body.includes(group))).toHaveLength(0);
   });
 
   test("markPublishedMany marca só pendentes e devolve as linhas afetadas", async () => {
