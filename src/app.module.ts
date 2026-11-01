@@ -5,8 +5,15 @@ import type { AppConfig } from "./config/config";
 import { ConfigModule } from "./config/config.module";
 import { createLogger } from "./infrastructure/observability/logger";
 import { PersistenceModule } from "./infrastructure/persistence/persistence.module";
+import { CreateWallet } from "./application/wallet/create-wallet";
+import { WalletQueries } from "./application/wallet/wallet-queries";
+import { CLOCK, ID_GENERATOR, UNIT_OF_WORK } from "./application/ports/tokens";
+import type { Clock } from "./application/ports/clock";
+import type { IdGenerator } from "./application/ports/id-generator";
+import type { UnitOfWork } from "./application/ports/unit-of-work";
 import { HealthController } from "./interfaces/http/health.controller";
 import { MetricsController } from "./interfaces/http/metrics.controller";
+import { WalletsController } from "./interfaces/http/wallets.controller";
 import { ERROR_LOGGER, HttpErrorFilter } from "./interfaces/http/http-error.filter";
 
 @Module({})
@@ -21,8 +28,18 @@ export class AppModule {
         ConfigModule.register(config),
         PersistenceModule,
       ],
-      controllers: [HealthController, MetricsController],
+      controllers: [HealthController, MetricsController, WalletsController],
       providers: [
+        {
+          provide: CreateWallet,
+          inject: [UNIT_OF_WORK, CLOCK, ID_GENERATOR],
+          useFactory: (uow: UnitOfWork, clock: Clock, ids: IdGenerator) => new CreateWallet(uow, clock, ids),
+        },
+        {
+          provide: WalletQueries,
+          inject: [UNIT_OF_WORK],
+          useFactory: (uow: UnitOfWork) => new WalletQueries(uow),
+        },
         { provide: ERROR_LOGGER, useFactory: () => createLogger() },
         { provide: APP_FILTER, useClass: HttpErrorFilter },
       ],
