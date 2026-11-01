@@ -59,7 +59,11 @@ function appPublisher(): OutboxPublisher {
   return publisherFor(container.get<UnitOfWork>(UNIT_OF_WORK));
 }
 
-/** Insere eventos pendentes direto na outbox, como o caso de uso faria (mesma forma de linha). */
+/**
+ * Insere eventos pendentes direto na outbox, como o caso de uso faria (mesma forma de linha).
+ * next_attempt_at fica no passado: o claim compara com o relógio da app, e now() do banco pode estar
+ * ~1ms à frente dele, o que deixava a linha "ainda não devida" (flake attempts 0).
+ */
 async function seedOutbox(n: number, aggregateId: string, eventType = "TestEvent"): Promise<string[]> {
   const ids: string[] = [];
   for (let i = 0; i < n; i++) {
@@ -67,7 +71,7 @@ async function seedOutbox(n: number, aggregateId: string, eventType = "TestEvent
     ids.push(id);
     await ownerPool().query(
       `INSERT INTO outbox_messages (id, aggregate_id, event_type, payload, occurred_at, attempts, next_attempt_at)
-       VALUES ($1, $2, $3, $4::jsonb, now(), 0, now())`,
+       VALUES ($1, $2, $3, $4::jsonb, now(), 0, now() - interval '1 minute')`,
       [id, aggregateId, eventType, JSON.stringify({ eventId: id, eventType, aggregateId, data: { i } })],
     );
   }
