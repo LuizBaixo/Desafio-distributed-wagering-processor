@@ -10,12 +10,12 @@ import { WAGER_DLQ, WAGER_QUEUE, purgeAll, queueDepth, sendWager, waitFor } from
 import { TEST_DOCKER_HOST } from "../helpers/env";
 
 /**
- * Queda real do banco. Usa um Postgres próprio e descartável (porta 55432), nunca o container
+ * Queda real do banco. Usa um Postgres próprio e descartável (porta 55432, ou `TEST_OUTAGE_PG_PORT`; nome do container em `TEST_OUTAGE_CONTAINER`), nunca o container
  * compartilhado de teste: `docker stop` aqui não afeta nenhuma outra suíte.
  * Sem `--rm`, para o `docker start` funcionar; o container é removido no afterAll.
  */
-const CONTAINER = "wagering-outage-pg";
-const PG_PORT = 55432;
+const CONTAINER = process.env.TEST_OUTAGE_CONTAINER ?? "wagering-outage-pg";
+const PG_PORT = Number(process.env.TEST_OUTAGE_PG_PORT ?? 55432);
 const APP_PORT = Number(process.env.TEST_PORT_BASE ?? 4101) + 40;
 const ADMIN_URL = `postgres://postgres:postgres@${TEST_DOCKER_HOST}:${PG_PORT}/wagering`;
 const OWNER_URL = `postgres://wagering_owner:owner@${TEST_DOCKER_HOST}:${PG_PORT}/wagering`;
