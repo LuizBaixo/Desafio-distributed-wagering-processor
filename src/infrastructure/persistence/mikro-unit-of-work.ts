@@ -12,13 +12,19 @@ import { PgWalletRepository } from "./repositories/wallet.repository";
 import { Db } from "./sql";
 
 const DEFAULT_LOCK_TIMEOUT = "5s";
+/** SET não aceita parâmetro ligado, então o valor é interpolado: só entra no formato numérico. */
+const LOCK_TIMEOUT_FORMAT = /^\d+(ms|s)$/;
 
 export class MikroUnitOfWork implements UnitOfWork {
   constructor(
     private readonly em: EntityManager,
     private readonly lockTimeout: string = DEFAULT_LOCK_TIMEOUT,
     private readonly metrics?: Metrics,
-  ) {}
+  ) {
+    if (!LOCK_TIMEOUT_FORMAT.test(lockTimeout)) {
+      throw new Error(`invalid lock_timeout: ${JSON.stringify(lockTimeout)} (expected <number>ms or <number>s)`);
+    }
+  }
 
   run<T>(work: (scope: TransactionScope) => Promise<T>): Promise<T> {
     return getTracing().withSpan("db.transaction", {}, () => this.runTransaction(work));

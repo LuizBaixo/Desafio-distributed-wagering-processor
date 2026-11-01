@@ -1,10 +1,43 @@
 import "reflect-metadata";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { NestFactory } from "@nestjs/core";
 import type { DynamicModule, OnApplicationShutdown } from "@nestjs/common";
+import type { NestExpressApplication } from "@nestjs/platform-express";
+import helmet from "helmet";
 import { Logger } from "nestjs-pino";
 import { AppModule } from "./app.module";
 import { loadConfig } from "./config/config";
 import { setupOpenApi } from "./interfaces/http/openapi";
+
+/** Limite do body JSON. Acima disso, `payloadTooLarge` responde 413. */
+const JSON_BODY_LIMIT = "64kb";
+
+/**
+ * Cabeçalhos de segurança em todas as respostas. Em `/docs` o CSP sai, porque o Swagger UI usa script inline.
+ */
+const strictHeaders = helmet();
+const docsHeaders = helmet({ contentSecurityPolicy: false });
+
+function securityHeaders(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void): void {
+  (req.url?.startsWith("/docs") ? docsHeaders : strictHeaders)(req, res, next);
+}
+
+/**
+ * Erro de body acima do limite. O body-parser responderia HTML; aqui sai no formato `{ error: { code, message } }`.
+ * Registrado depois das rotas (ver `bootstrap`), para receber os erros do parser.
+ */
+function payloadTooLarge(
+  err: unknown,
+  _req: IncomingMessage,
+  res: { status(code: number): { json(body: unknown): void } },
+  next: (err?: unknown) => void,
+): void {
+  if ((err as { type?: string } | null)?.type === "entity.too.large") {
+    res.status(413).json({ error: { code: "PAYLOAD_TOO_LARGE", message: "payload too large" } });
+    return;
+  }
+  next(err);
+}
 
 /** Faz o flush dos spans finais no shutdown da aplicação (ver `withTracingFlush`). */
 class TracingFlush implements OnApplicationShutdown {
@@ -29,9 +62,19 @@ async function bootstrap(): Promise<void> {
   }
   const config = loadConfig();
   const root = AppModule.register(config);
-  const app = await NestFactory.create(tracingShutdown ? withTracingFlush(root, tracingShutdown) : root, { bufferLogs: true });
+  // bodyParser: false, para o parser e o handler de 413 entrarem antes do init. Assim ficam antes
+  // do handler de erro que o Nest registra no init, e o 413 não vira 500.
+  const app = await NestFactory.create<NestExpressApplication>(
+    tracingShutdown ? withTracingFlush(root, tracingShutdown) : root,
+    { bufferLogs: true, bodyParser: false },
+  );
   app.useLogger(app.get(Logger));
-  setupOpenApi(app);
+  app.disable("x-powered-by");
+  app.use(securityHeaders);
+  app.useBodyParser("json", { limit: JSON_BODY_LIMIT });
+  app.use(payloadTooLarge);
+  // /docs só com DOCS_ENABLED (padrão: ligado fora de production).
+  if (config.docsEnabled) setupOpenApi(app);
   // useProcessExit: depois dos hooks, sai com 0 (e dá flush no pino) em vez de reenviar o sinal
   // ao próprio processo, o que terminaria com 143 e pareceria um shutdown abortado.
   app.enableShutdownHooks(undefined, { useProcessExit: true });

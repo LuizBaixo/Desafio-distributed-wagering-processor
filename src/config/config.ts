@@ -5,6 +5,8 @@ export type AppRole = (typeof APP_ROLES)[number];
 
 export interface AppConfig {
   port: number;
+  /** Swagger UI em /docs e /docs-json. */
+  docsEnabled: boolean;
   databaseUrl: string;
   sqsEndpoint: string;
   awsRegion: string;
@@ -56,6 +58,8 @@ const envSchema = z.object({
   CONSUMER_VISIBILITY_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
   CONSUMER_MAX_BACKOFF_SECONDS: z.coerce.number().int().positive().default(60),
   CONSUMER_WAIT_SECONDS: z.coerce.number().int().min(0).max(20).default(10),
+  // /docs (OpenAPI UI). Ausente: ligado fora de NODE_ENV=production, desligado nele.
+  DOCS_ENABLED: z.enum(["true", "false"]).optional(),
 });
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -67,6 +71,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const e = parsed.data;
   return {
     port: e.PORT,
+    docsEnabled: e.DOCS_ENABLED !== undefined ? e.DOCS_ENABLED === "true" : env.NODE_ENV !== "production",
     databaseUrl: e.DATABASE_URL,
     sqsEndpoint: e.SQS_ENDPOINT,
     awsRegion: e.AWS_REGION,

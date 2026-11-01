@@ -132,6 +132,13 @@ Cada mensagem é copiada com um `MessageDeduplicationId` novo e só é apagada d
 
 Limitação do FIFO: uma mensagem em voo bloqueia as da mesma `walletId` até voltar. Com `--reason`, mensagens de outro motivo da mesma wallet podem ficar para a próxima execução.
 
+### Exposição de rotas, body e rate limit
+
+- `/metrics`, `/health/live` e `/health/ready` são para a rede interna. Não exponha a porta da API na internet sem proxy na frente.
+- `/docs` e `/docs-json` só existem com `DOCS_ENABLED=true`. O padrão é ligado fora de `NODE_ENV=production` e desligado nele.
+- O body JSON é limitado a 64 KB. Acima disso, a resposta é `413` com `{ "error": { "code": "PAYLOAD_TOO_LARGE" } }`.
+- A aplicação não tem rate limit. Aplique na borda (API gateway, LB ou nginx). Um limitador em memória por instância não funciona com várias réplicas.
+
 ## Scripts
 
 | Script | O que faz |
@@ -388,6 +395,7 @@ Variáveis lidas por `src/config/config.ts` (valores padrão entre parênteses):
 | Variável | Padrão | Uso |
 |---|---|---|
 | `PORT` | `3000` | Porta HTTP |
+| `DOCS_ENABLED` | `true` fora de `NODE_ENV=production`, `false` nele | Liga o Swagger UI em `/docs` e o JSON em `/docs-json`. Desligado, ambos respondem 404 |
 | `DATABASE_URL` | obrigatória | Conexão do runtime (papel `wagering_app`) |
 | `MIGRATION_DATABASE_URL` | `DATABASE_URL` | Conexão de migrations (papel `wagering_owner`) |
 | `SQS_ENDPOINT` | obrigatória | Endpoint SQS (MiniStack) |
