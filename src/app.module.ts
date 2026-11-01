@@ -7,7 +7,7 @@ import { PromMetrics } from "./infrastructure/observability/prom-metrics";
 import { createLogger } from "./infrastructure/observability/logger";
 import { HealthController } from "./interfaces/http/health.controller";
 import { MetricsController } from "./interfaces/http/metrics.controller";
-import { HttpErrorFilter } from "./interfaces/http/http-error.filter";
+import { ERROR_LOGGER, HttpErrorFilter } from "./interfaces/http/http-error.filter";
 
 @Module({})
 export class AppModule {
@@ -24,6 +24,7 @@ export class AppModule {
         { provide: APP_CONFIG, useValue: config },
         PromMetrics,
         { provide: METRICS, useExisting: PromMetrics },
+        { provide: ERROR_LOGGER, useFactory: () => createLogger() },
         { provide: APP_FILTER, useClass: HttpErrorFilter },
       ],
     };

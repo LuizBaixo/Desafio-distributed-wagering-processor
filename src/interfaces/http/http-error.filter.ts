@@ -1,5 +1,12 @@
-import { Catch, HttpException, type ArgumentsHost, type ExceptionFilter } from "@nestjs/common";
 import {
+  Catch,
+  HttpException,
+  Inject,
+  type ArgumentsHost,
+  type ExceptionFilter,
+} from "@nestjs/common";
+import {
+  ConcurrencyViolationError,
   DuplicateWalletError,
   InvalidPayloadError,
   NotFoundError,
@@ -13,6 +20,13 @@ interface HttpResponseLike {
   setHeader(name: string, value: string): void;
   json(body: unknown): void;
 }
+
+/** Subconjunto do logger pino usado pelo filtro. */
+export interface ErrorLogger {
+  error(obj: object, msg?: string): void;
+}
+
+export const ERROR_LOGGER = Symbol("ERROR_LOGGER");
 
 interface Mapped {
   status: number;
@@ -38,7 +52,8 @@ function map(exception: unknown): Mapped {
   if (exception instanceof DuplicateWalletError) {
     return { status: 409, code: "WALLET_ALREADY_EXISTS", message: exception.message };
   }
-  if (exception instanceof TransientInfrastructureError) {
+  // Conflito de versão é transitório (Design §7): mesma resposta que falha de infraestrutura.
+  if (exception instanceof TransientInfrastructureError || exception instanceof ConcurrencyViolationError) {
     return {
       status: 503,
       code: "INFRA_UNAVAILABLE",
@@ -47,16 +62,28 @@ function map(exception: unknown): Mapped {
     };
   }
   if (exception instanceof HttpException) {
-    return { status: exception.getStatus(), code: "HTTP_ERROR", message: exception.message };
+    const status = exception.getStatus();
+    const code = status === 400 ? "INVALID_PAYLOAD" : status === 404 ? "NOT_FOUND" : "HTTP_ERROR";
+    return { status, code, message: exception.message };
   }
   return { status: 500, code: "INTERNAL", message: "internal error" };
 }
 
 @Catch()
 export class HttpErrorFilter implements ExceptionFilter {
+  constructor(@Inject(ERROR_LOGGER) private readonly logger: ErrorLogger) {}
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const res = host.switchToHttp().getResponse<HttpResponseLike>();
     const mapped = map(exception);
+    if (mapped.code === "INTERNAL") {
+      // Só nome e stack: nunca o body da request.
+      const err = exception instanceof Error ? exception : undefined;
+      this.logger.error(
+        { errorName: err?.name ?? "UnknownError", stack: err?.stack },
+        "unhandled error",
+      );
+    }
     if (mapped.retryAfterSeconds !== undefined) {
       res.setHeader("Retry-After", String(mapped.retryAfterSeconds));
     }
