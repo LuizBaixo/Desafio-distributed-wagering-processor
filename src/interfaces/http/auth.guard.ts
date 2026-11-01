@@ -18,6 +18,6 @@ export const PROVIDER_IDENTITY = Symbol("PROVIDER_IDENTITY");
 @Injectable()
 export class NoopProviderIdentity implements ProviderIdentityPort {
   assertCanActAs(_providerId: string): void {
-    // no-op por decisão de escopo (ver ARCHITECTURE.md quando existir)
+    // no-op por decisão de escopo (ver ARCHITECTURE.md §14, Autenticação)
   }
 }
