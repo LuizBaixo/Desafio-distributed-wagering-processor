@@ -26,13 +26,33 @@ describe("loadConfig: AUTH_MODE", () => {
     }
   });
 
-  test("oidc completo devolve issuer, audience e jwksUrl", () => {
+  test("oidc completo devolve issuer, audience, jwksUrl e timeout padrão de 2000 ms", () => {
     expect(loadConfig({ ...BASE, ...OIDC }).auth).toEqual({
       mode: "oidc",
       issuer: "https://idp.example.com/",
       audience: "wagering",
       jwksUrl: "https://idp.example.com/.well-known/jwks.json",
+      jwksTimeoutMs: 2000,
     });
+  });
+
+  test("OIDC_JWKS_TIMEOUT_MS configura o timeout do JWKS", () => {
+    const auth = loadConfig({ ...BASE, ...OIDC, OIDC_JWKS_TIMEOUT_MS: "500" }).auth;
+    expect(auth).toMatchObject({ mode: "oidc", jwksTimeoutMs: 500 });
+  });
+
+  test("OIDC_JWKS_TIMEOUT_MS inválido falha", () => {
+    expect(() => loadConfig({ ...BASE, ...OIDC, OIDC_JWKS_TIMEOUT_MS: "0" })).toThrow("OIDC_JWKS_TIMEOUT_MS");
+  });
+
+  test("fora de produção, http em OIDC_JWKS_URL e OIDC_ISSUER é aceito", () => {
+    const auth = loadConfig({
+      ...BASE,
+      ...OIDC,
+      OIDC_ISSUER: "http://idp.test/",
+      OIDC_JWKS_URL: "http://127.0.0.1:9999/jwks.json",
+    }).auth;
+    expect(auth).toMatchObject({ mode: "oidc", jwksUrl: "http://127.0.0.1:9999/jwks.json" });
   });
 
   test("valor inválido de AUTH_MODE falha", () => {
@@ -72,6 +92,19 @@ describe("loadConfig: NODE_ENV=production", () => {
   });
 
   test("configuração segura com oidc passa", () => {
+    expect(loadConfig({ ...PROD, ...OIDC }).auth.mode).toBe("oidc");
+  });
+
+  test.each([
+    ["OIDC_JWKS_URL", "http://idp.example.com/.well-known/jwks.json"],
+    ["OIDC_JWKS_URL", "file:///etc/passwd"],
+    ["OIDC_ISSUER", "http://idp.example.com/"],
+    ["OIDC_ISSUER", "file:///srv/idp"],
+  ])("produção recusa %s com esquema não https (%s)", (name, value) => {
+    expect(() => loadConfig({ ...PROD, ...OIDC, [name]: value })).toThrow(name);
+  });
+
+  test("produção aceita https em OIDC_JWKS_URL e OIDC_ISSUER", () => {
     expect(loadConfig({ ...PROD, ...OIDC }).auth.mode).toBe("oidc");
   });
 

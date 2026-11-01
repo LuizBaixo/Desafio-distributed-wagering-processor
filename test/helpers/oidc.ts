@@ -6,7 +6,10 @@ export const TEST_AUDIENCE = "wagering-api";
 export interface TestIdp {
   jwksUrl: string;
   /** Assina um JWT RS256 válido por padrão; `claims` e `opts` permitem montar casos inválidos. */
-  sign(claims?: Record<string, unknown>, opts?: { issuer?: string; audience?: string; expiresIn?: string | number; key?: "main" | "other" }): Promise<string>;
+  sign(
+    claims?: Record<string, unknown>,
+    opts?: { issuer?: string; audience?: string; expiresIn?: string | number; key?: "main" | "other"; withoutExp?: boolean },
+  ): Promise<string>;
   stop(): Promise<void>;
 }
 
@@ -24,14 +27,14 @@ export async function startTestIdp(): Promise<TestIdp> {
     jwksUrl: `http://127.0.0.1:${server.port}/jwks.json`,
     async sign(claims = {}, opts = {}) {
       const key = opts.key === "other" ? other.privateKey : main.privateKey;
-      return new SignJWT(claims)
+      const jwt = new SignJWT(claims)
         .setProtectedHeader({ alg: "RS256", kid: "k1" })
         .setIssuer(opts.issuer ?? TEST_ISSUER)
         .setAudience(opts.audience ?? TEST_AUDIENCE)
         .setSubject("tester")
-        .setIssuedAt()
-        .setExpirationTime(opts.expiresIn ?? "5m")
-        .sign(key);
+        .setIssuedAt();
+      if (!opts.withoutExp) jwt.setExpirationTime(opts.expiresIn ?? "5m");
+      return jwt.sign(key);
     },
     stop: async () => {
       await server.stop(true);

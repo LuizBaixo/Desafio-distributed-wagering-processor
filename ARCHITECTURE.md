@@ -234,7 +234,9 @@ Quando a referência ainda não existe, a transação grava `PENDING_REFERENCE` 
 **Decisão: a autenticação é delegada a um IdP via OIDC/JWT.** O serviço não guarda credenciais nem emite tokens; só valida.
 
 - `AUTH_MODE` = `disabled` ou `oidc`. Em `oidc`, `OIDC_ISSUER`, `OIDC_AUDIENCE` e `OIDC_JWKS_URL` são obrigatórias. `disabled` mantém o comportamento aberto, usado em dev e nos testes.
-- `OidcTokenVerifier` (`src/infrastructure/auth`) usa `jose` (`createRemoteJWKSet` e `jwtVerify`) e confere issuer, audience, `exp` e algoritmo (só RS256 e ES256).
+- `OidcTokenVerifier` (`src/infrastructure/auth`) usa `jose` (`createRemoteJWKSet` e `jwtVerify`) e confere issuer, audience, algoritmo (só RS256 e ES256) e `exp`, que é obrigatório: token sem `exp` é recusado mesmo com assinatura válida.
+- Timeout do JWKS: `OIDC_JWKS_TIMEOUT_MS` (padrão 2000 ms) por busca. Chave ausente no JWKS (kid desconhecido) é token inválido.
+- Indisponibilidade do IdP (timeout, erro de rede, resposta não-200, JWKS inválido) vira `TransientInfrastructureError` e responde 503 `INFRA_UNAVAILABLE` com `Retry-After: 1`. Nunca 200, nunca 401 por causa do IdP (fail-closed).
 - `AuthGuard` extrai o bearer, rejeita com 401 `UNAUTHORIZED` (sem revelar o motivo) e anexa o `Principal` (`provider_id`, `scope`) à requisição. `@RequireScope` adiciona a checagem de scope.
 - `ProviderIdentityPort` tem duas implementações: `NoopProviderIdentity` (`disabled`) e `ClaimsProviderIdentity` (`oidc`), que compara o claim `provider_id` com o provedor pedido.
 
@@ -248,6 +250,7 @@ Quando a referência ainda não existe, a transação grava `PENDING_REFERENCE` 
 - Health e métricas não exigem autenticação (rede interna).
 - Mensagens SQS são tratadas como canal interno confiável; a identidade do provedor no corpo continua sujeita às validações de domínio.
 - Com `NODE_ENV=production`, `loadConfig` falha se `AUTH_MODE` não estiver definido, se `DATABASE_URL` usar senha padrão ou se `AWS_ACCESS_KEY_ID` for `test`. `AUTH_MODE=disabled` em produção sobe com um aviso no log.
+- Em produção, `OIDC_ISSUER` e `OIDC_JWKS_URL` precisam ser `https:`; `http:` e `file:` são recusados com erro que nomeia a variável. Fora de produção, `http` é aceito (testes e dev).
 - `X-Correlation-Id` só é aceito no formato `^[A-Za-z0-9._:-]{1,128}$`; o valor recebido fora dele nunca é refletido.
 
 ## 15. Interpretações adotadas

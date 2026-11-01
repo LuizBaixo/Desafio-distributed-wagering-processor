@@ -48,6 +48,13 @@ describe("401 UNAUTHORIZED", () => {
     expect(res.body).toEqual({ error: { code: "UNAUTHORIZED", message: expect.any(String) } });
   });
 
+  test("token sem exp, mesmo com assinatura válida, é recusado (A-R2-02)", async () => {
+    const token = await idp.sign({ provider_id: "provider-a", scope: "openid wallet:admin" }, { withoutExp: true });
+    const w = await createWalletDirect("10.00");
+    const res = await fetch(`${base}/wallets/${w.walletId}`, { headers: bearer(token) });
+    expect(res.status).toBe(401);
+  });
+
   test("token expirado", async () => {
     const token = await idp.sign({ provider_id: "provider-a" }, { expiresIn: -60 });
     expect((await wagerFor("provider-a", token)).res.status).toBe(401);

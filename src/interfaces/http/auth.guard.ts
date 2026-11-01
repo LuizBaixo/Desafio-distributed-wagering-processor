@@ -7,7 +7,7 @@ import {
   type ExecutionContext,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { ForbiddenError, UnauthorizedError } from "../../application/errors";
+import { ForbiddenError, TransientInfrastructureError, UnauthorizedError } from "../../application/errors";
 import { TOKEN_VERIFIER, type Principal, type TokenVerifier } from "../../infrastructure/auth/principal";
 
 const REQUIRED_SCOPE = "auth:required-scope";
@@ -41,7 +41,9 @@ export class AuthGuard implements CanActivate {
     let principal: Principal;
     try {
       principal = await this.verifier.verify(match[1]!);
-    } catch {
+    } catch (err) {
+      // IdP indisponível: 503 (o filtro mapeia para INFRA_UNAVAILABLE + Retry-After), não 401.
+      if (err instanceof TransientInfrastructureError) throw err;
       // O motivo (expirado, issuer, assinatura) não vai ao cliente.
       throw new UnauthorizedError();
     }

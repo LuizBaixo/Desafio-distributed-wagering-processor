@@ -5,7 +5,7 @@ export type AppRole = (typeof APP_ROLES)[number];
 
 export type AuthConfig =
   | { mode: "disabled" }
-  | { mode: "oidc"; issuer: string; audience: string; jwksUrl: string };
+  | { mode: "oidc"; issuer: string; audience: string; jwksUrl: string; jwksTimeoutMs: number };
 
 export interface AppConfig {
   /** `NODE_ENV=production`: ativa as validações de configuração segura. */
@@ -41,6 +41,8 @@ const envSchema = z.object({
   OIDC_ISSUER: z.string().min(1).optional(),
   OIDC_AUDIENCE: z.string().min(1).optional(),
   OIDC_JWKS_URL: z.string().url().optional(),
+  // Timeout de cada busca do JWKS: IdP pendurado não pode segurar requisições por 5 s (A-R2-03).
+  OIDC_JWKS_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   PORT: z.coerce.number().int().positive().default(3000),
   DATABASE_URL: z.string().min(1),
@@ -75,6 +77,14 @@ const envSchema = z.object({
   DOCS_ENABLED: z.enum(["true", "false"]).optional(),
 });
 
+function isHttps(value: string): boolean {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /** Senhas padrão dos papéis de desenvolvimento (docker-compose, init-roles.sql). */
 const DEFAULT_DB_PASSWORDS = ["postgres:postgres", ":owner@", ":app@"];
 
@@ -100,12 +110,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       problems.push("DATABASE_URL: contains a default password, which is not allowed in production");
     }
     if (e.AWS_ACCESS_KEY_ID === "test") problems.push("AWS_ACCESS_KEY_ID: the development value 'test' is not allowed in production");
+    // O IdP é a raiz de confiança da autenticação: em produção só https (A-R2-07).
+    for (const name of ["OIDC_ISSUER", "OIDC_JWKS_URL"] as const) {
+      const value = e[name];
+      if (value !== undefined && !isHttps(value)) {
+        problems.push(`${name}: must be an https URL in production`);
+      }
+    }
   }
   if (problems.length > 0) throw new Error(`invalid configuration: ${problems.join("; ")}`);
 
   const auth: AuthConfig =
     e.AUTH_MODE === "oidc"
-      ? { mode: "oidc", issuer: e.OIDC_ISSUER!, audience: e.OIDC_AUDIENCE!, jwksUrl: e.OIDC_JWKS_URL! }
+      ? {
+          mode: "oidc",
+          issuer: e.OIDC_ISSUER!,
+          audience: e.OIDC_AUDIENCE!,
+          jwksUrl: e.OIDC_JWKS_URL!,
+          jwksTimeoutMs: e.OIDC_JWKS_TIMEOUT_MS,
+        }
       : { mode: "disabled" };
 
   return {
