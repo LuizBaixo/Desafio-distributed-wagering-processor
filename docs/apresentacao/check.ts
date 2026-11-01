@@ -36,8 +36,8 @@ lines.forEach((line, i) => {
 });
 
 const slideCount = (html.match(/<section class="slide"/g) ?? []).length;
-if (slideCount !== 14) {
-  problems.push(`esperado 14 <section class="slide">, encontrado ${slideCount}`);
+if (slideCount !== 15) {
+  problems.push(`esperado 15 <section class="slide">, encontrado ${slideCount}`);
 }
 
 if (problems.length > 0) {
@@ -46,4 +46,4 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-console.log(`OK: index.html sem data-pending, sem recurso externo, 14 slides, aria-label preenchido.`);
+console.log(`OK: index.html sem data-pending, sem recurso externo, 15 slides, aria-label preenchido.`);
