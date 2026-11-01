@@ -50,3 +50,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(e.FAULT_INJECT ? { faultInject: e.FAULT_INJECT } : {}),
   };
 }
+
+/** Token de injeção da configuração validada. */
+export const APP_CONFIG = Symbol("APP_CONFIG");
