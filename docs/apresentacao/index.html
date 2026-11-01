@@ -39,6 +39,15 @@ html, body {
 }
 .slide.active { display: flex; }
 
+/* Layout: conteúdo centralizado na vertical e na horizontal, largura máxima 1120 px.
+   O slide 12 fica de fora (vai ser substituído pelo Bigorna). */
+.slide:not(#slide-12) { align-items: center; text-align: center; }
+:where(.slide:not(#slide-12)) > * { width: 100%; max-width: 1120px; }
+.slide:not(#slide-12) .lead { font-size: clamp(1.4rem, 2vw, 1.75rem); max-width: 68ch; }
+.chips, .results, .flow { justify-content: center; }
+.rule, .term, .bar-row, .outbox-note { text-align: left; }
+.links { width: max-content; max-width: 100%; text-align: left; }
+
 h1 { font-size: clamp(2.2rem, 5vw, 4.5rem); line-height: 1.1; margin: 0 0 0.4em; }
 h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6em; }
 
@@ -67,7 +76,7 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 }
 .hint { color: var(--muted); font-size: clamp(1rem, 1.6vw, 1.25rem); }
 .help-btn {
-  align-self: flex-start;
+  align-self: center;
   margin-top: 2rem;
   width: 2.4rem;
   height: 2.4rem;
@@ -99,7 +108,7 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 .lead { font-size: clamp(1.05rem, 1.9vw, 1.5rem); line-height: 1.5; max-width: 62ch; margin: 1.5rem 0 0; }
 .lead code, .hint code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; color: var(--accent); }
 .subtitle { color: var(--muted); font-size: clamp(1.2rem, 2.4vw, 1.9rem); margin: 0 0 2rem; }
-.chips { list-style: none; padding: 0; margin: 0 0 2rem; display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.chips { list-style: none; padding: 0; margin: 0 0 2rem; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem; }
 .chips li {
   padding: 0.5rem 1rem;
   border: 1px solid var(--accent);
@@ -136,16 +145,16 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 .diagram .msg, .diagram .pill { transform: translate(var(--dx), var(--dy)); }
 .diagram .tl text { font-size: 20px; }
 
-.cards { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+.cards { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 .card {
-  padding: 1rem 1.2rem;
+  padding: 1.2rem 1.2rem;
   background: #161b22;
   border-left: 6px solid var(--fail);
   border-radius: 6px;
-  font-size: clamp(1.05rem, 1.8vw, 1.4rem);
+  font-size: clamp(1.2rem, 2vw, 1.6rem);
 }
 
-.results { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1.5rem 0 0; }
+.results { display: flex; flex-wrap: wrap; justify-content: center; gap: 1rem; margin: 1.5rem 0 0; }
 .res {
   margin: 0;
   padding: 0.6rem 1rem;
@@ -176,26 +185,26 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 .s-pend { color: var(--pending); opacity: 0; }
 .s-ok { color: var(--ok); }
 
-.slide.active .rise { animation: rise 0.7s ease-out both; }
-.slide.active .chips li { animation: chipIn 0.5s ease-out both; animation-delay: calc(var(--i) * 0.12s + 0.4s); }
-.slide.active .msg, .slide.active .pill { animation: fly 1.8s ease-in both; animation-delay: var(--d); }
-.slide.active .pill { animation-duration: 1s; }
-.slide.active .card { animation: cardIn 0.5s ease-out both; animation-delay: calc(var(--i) * 0.6s + 0.3s); }
-.slide.active .bal-100 { animation: swapOut 0.4s linear both; animation-delay: 1.2s; }
-.slide.active .bal-20 { animation: swapIn 0.4s linear both; animation-delay: 1.6s; }
-.slide.active .bar { animation: shrink 0.8s ease-in-out both; animation-delay: 1.2s; }
-.slide.active .lock { animation: fadeIn 0.3s both; animation-delay: 1s; }
-.slide.active .res-ok { animation: rise 0.5s ease-out both; animation-delay: 1.4s; }
-.slide.active .res-fail { animation: rise 0.5s ease-out both; animation-delay: 2s; }
-.slide.active .dot { animation: dotFly 1.1s ease-in both; animation-delay: calc(var(--i) * 0.035s + 0.3s); }
-.slide.active .dot.debit { animation: dotDebit 1.1s ease-in both; animation-delay: 0.3s; }
-.slide.active .debit-label { animation: fadeIn 0.5s both; animation-delay: 1.6s; }
-.slide.active .replay { animation: fadeIn 0.5s both; animation-delay: 2.4s; }
-.slide.active .tl { animation: fadeIn 0.5s both; animation-delay: var(--d); }
-.slide.active .node-ref { animation: toOk 0.6s both; animation-delay: 2.4s; }
-.slide.active .node-bet { animation: rise 0.6s ease-out both; animation-delay: 1.4s; }
-.slide.active .s-pend { animation: swapOut 0.3s linear both; animation-delay: 2.4s; }
-.slide.active .s-ok { animation: swapIn 0.3s linear both; animation-delay: 2.5s; }
+/* Animações: cada slide termina em até 1,2 s; stagger de até 100 ms por item; duração de 300 a 500 ms. */
+.slide.active .rise { animation: rise 0.4s ease-out both; }
+.slide.active .chips li { animation: chipIn 0.4s ease-out both; animation-delay: calc(var(--i) * 0.1s + 0.2s); }
+.slide.active .msg, .slide.active .pill { animation: fly 0.5s ease-in both; animation-delay: var(--d); }
+.slide.active .card { animation: cardIn 0.4s ease-out both; animation-delay: calc(var(--i) * 0.1s + 0.1s); }
+.slide.active .bal-100 { animation: swapOut 0.3s linear both; animation-delay: 0.55s; }
+.slide.active .bal-20 { animation: swapIn 0.3s linear both; animation-delay: 0.85s; }
+.slide.active .bar { animation: shrink 0.5s ease-in-out both; animation-delay: 0.5s; }
+.slide.active .lock { animation: fadeIn 0.3s both; animation-delay: 0.5s; }
+.slide.active .res-ok { animation: rise 0.4s ease-out both; animation-delay: 0.6s; }
+.slide.active .res-fail { animation: rise 0.4s ease-out both; animation-delay: 0.7s; }
+.slide.active .dot { animation: dotFly 0.4s ease-in both; animation-delay: calc(var(--i) * 0.012s + 0.15s); }
+.slide.active .dot.debit { animation: dotDebit 0.4s ease-in both; animation-delay: 0.15s; }
+.slide.active .debit-label { animation: fadeIn 0.4s both; animation-delay: 0.7s; }
+.slide.active .replay { animation: fadeIn 0.4s both; animation-delay: 0.75s; }
+.slide.active .tl { animation: fadeIn 0.4s both; animation-delay: var(--d); }
+.slide.active .node-ref { animation: toOk 0.4s both; animation-delay: 0.7s; }
+.slide.active .node-bet { animation: rise 0.4s ease-out both; animation-delay: 0.3s; }
+.slide.active .s-pend { animation: swapOut 0.3s linear both; animation-delay: 0.7s; }
+.slide.active .s-ok { animation: swapIn 0.3s linear both; animation-delay: 0.8s; }
 
 @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 @keyframes chipIn { from { opacity: 0; transform: translateY(8px) scale(0.95); } to { opacity: 1; transform: none; } }
@@ -232,7 +241,9 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 .diagram .ev { transform: translate(var(--dx), var(--dy)); }
 .diagram .ev circle { fill: var(--pending); }
 
-.rules { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 0.75rem; }
+.rules { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.75rem; }
+.rule { grid-column: span 2; }
+.rule:nth-child(7) { grid-column: 3 / span 2; }
 .rule {
   display: flex;
   flex-direction: column;
@@ -246,7 +257,10 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 .rule code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; color: var(--accent); font-size: 0.95em; overflow-wrap: anywhere; }
 .rule span { color: var(--muted); font-size: 0.9em; }
 
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+.stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1rem; }
+.stat { grid-column: span 2; }
+.stat:nth-child(4) { grid-column: 2 / span 2; }
+.stat:nth-child(5) { grid-column: 4 / span 2; }
 .stat {
   display: flex;
   flex-direction: column;
@@ -305,28 +319,19 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
 }
 
-.flips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
-.flip { perspective: 900px; height: 11rem; }
-.flip-inner { position: relative; width: 100%; height: 100%; transform: rotateY(180deg); transform-style: preserve-3d; }
-.face {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  padding: 1rem 1.2rem;
+.decisions { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.decision {
+  padding: 1.1rem 1.3rem;
   background: #161b22;
   border: 1px solid var(--line);
+  border-top: 4px solid var(--ok);
   border-radius: 10px;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  font-size: clamp(1rem, 1.5vw, 1.2rem);
+  text-align: left;
 }
-.face.front { border-top: 4px solid var(--accent); }
-.face.back { display: block; transform: rotateY(180deg); border-top: 4px solid var(--ok); font-size: clamp(0.92rem, 1.3vw, 1.1rem); }
-.face p { margin: 0; line-height: 1.45; }
-.face-title { margin: 0 0 0.4rem; color: #e6edf3; font-size: clamp(1rem, 1.5vw, 1.2rem); line-height: 1.25; }
-.face em { font-style: normal; color: var(--accent); }
-.face code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+.decision-title { margin: 0 0 0.5rem; color: #e6edf3; font-size: clamp(1.1rem, 1.7vw, 1.35rem); line-height: 1.25; }
+.decision p { margin: 0; line-height: 1.45; font-size: clamp(1rem, 1.5vw, 1.2rem); }
+.decision em { font-style: normal; color: var(--accent); }
+.decision code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
 
 .term {
   max-width: 100%;
@@ -344,26 +349,25 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 .cmd { display: inline-block; white-space: nowrap; }
 .cmd::before { content: "$ "; color: var(--muted); }
 
-.slide.active .ev { animation: fly 1.2s ease-in both; animation-delay: var(--d); }
+.slide.active .ev { animation: fly 0.4s ease-in both; animation-delay: var(--d); }
 .slide.active .ring { animation: ringIn 0.6s ease-out both; animation-delay: var(--d); }
-.slide.active .rule { animation: lit 0.5s ease-out both; animation-delay: calc(var(--i) * 0.35s + 0.3s); }
-.slide.active .stat { animation: rise 0.6s ease-out both; animation-delay: calc(var(--i) * 0.35s + 0.2s); }
-.slide.active .fill { animation: grow 1s ease-out both; animation-delay: 0.4s; }
-.slide.active .flip-inner { animation: flipCard 0.8s ease-in-out both; animation-delay: calc(var(--i) * 0.9s + 0.4s); }
-.slide.active .cmd { animation: reveal 0.9s steps(12, end) both; animation-delay: var(--d); }
+.slide.active .rule { animation: lit 0.4s ease-out both; animation-delay: calc(var(--i) * 0.1s + 0.1s); }
+.slide.active .stat { animation: rise 0.4s ease-out both; animation-delay: calc(var(--i) * 0.1s + 0.1s); }
+.slide.active .fill { animation: grow 0.5s ease-out both; animation-delay: 0.2s; }
+.slide.active .decision { animation: rise 0.4s ease-out both; animation-delay: calc(var(--i) * 0.1s + 0.1s); }
+.slide.active .cmd { animation: reveal 0.4s steps(12, end) both; animation-delay: var(--d); }
 
 @keyframes ringIn { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: none; } }
 @keyframes lit { from { opacity: 0.2; border-left-color: var(--line); } to { opacity: 1; border-left-color: var(--ok); } }
 @keyframes grow { from { width: 0; } to { width: var(--w); } }
-@keyframes flipCard { from { transform: rotateY(0deg); } to { transform: rotateY(180deg); } }
-@keyframes reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes reveal { from { opacity: 0; } to { opacity: 1; } }
 
 @media (max-width: 700px) {
   .slide { padding: 6vh 6vw; }
   h1 { font-size: 2rem; }
   h2 { font-size: 1.6rem; }
-  .rules, .flips { grid-template-columns: 1fr; }
-  .flip { height: 9rem; }
+  .cards, .rules, .stats, .decisions { grid-template-columns: 1fr; }
+  .cards > *, .rules > *, .stats > * { grid-column: auto !important; }
   .diagram .small { font-size: 14px; }
 }
 
@@ -423,12 +427,12 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
     <rect class="box" x="740" y="90" width="200" height="150" rx="8"/>
     <text x="840" y="150" text-anchor="middle">Processador</text>
     <text class="small" x="840" y="180" text-anchor="middle">at-least-once</text>
-    <g class="msg" style="--dx:340px;--dy:40px;--d:0.3s"><circle cx="260" cy="60" r="11"/><text x="282" y="66">BET</text></g>
-    <g class="msg" style="--dx:340px;--dy:-20px;--d:0.6s"><circle cx="260" cy="165" r="11"/><text x="282" y="171">WIN</text></g>
-    <g class="msg dup" style="--dx:340px;--dy:40px;--d:1s"><circle cx="260" cy="60" r="11"/><text x="282" y="66">BET</text></g>
-    <g class="msg cross" style="--dx:340px;--dy:-80px;--d:1.3s"><circle cx="260" cy="270" r="11"/><text x="282" y="276">REFUND</text></g>
-    <g class="msg cross" style="--dx:340px;--dy:70px;--d:1.6s"><circle cx="260" cy="165" r="11"/><text x="282" y="171">ROLLBACK</text></g>
-    <g class="msg" style="--dx:340px;--dy:10px;--d:1.9s"><circle cx="260" cy="270" r="11"/><text x="282" y="276">LOSS</text></g>
+    <g class="msg" style="--dx:340px;--dy:40px;--d:0.1s"><circle cx="260" cy="60" r="11"/><text x="282" y="66">BET</text></g>
+    <g class="msg" style="--dx:340px;--dy:-20px;--d:0.2s"><circle cx="260" cy="165" r="11"/><text x="282" y="171">WIN</text></g>
+    <g class="msg dup" style="--dx:340px;--dy:40px;--d:0.3s"><circle cx="260" cy="60" r="11"/><text x="282" y="66">BET</text></g>
+    <g class="msg cross" style="--dx:340px;--dy:-80px;--d:0.4s"><circle cx="260" cy="270" r="11"/><text x="282" y="276">REFUND</text></g>
+    <g class="msg cross" style="--dx:340px;--dy:70px;--d:0.5s"><circle cx="260" cy="165" r="11"/><text x="282" y="171">ROLLBACK</text></g>
+    <g class="msg" style="--dx:340px;--dy:10px;--d:0.6s"><circle cx="260" cy="270" r="11"/><text x="282" y="276">LOSS</text></g>
   </svg>
   <p class="lead">Provedores enviam BET, WIN, LOSS, REFUND e ROLLBACK com entrega at-least-once: mensagens duplicadas, fora de ordem e simultâneas, em várias instâncias. Dinheiro não pode duplicar nem ficar negativo.</p>
 </section>
@@ -449,8 +453,8 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 <section class="slide" id="slide-4" aria-label="Duas apostas, um saldo">
   <h2>Duas apostas, um saldo</h2>
   <svg class="diagram" viewBox="0 0 960 270" role="img" aria-label="Duas BET de 80 chegam juntas a uma wallet com saldo 100. A segunda espera o lock e é rejeitada; o saldo fica em 20.00.">
-    <g class="pill" style="--dx:300px;--dy:0px;--d:0.2s"><rect x="20" y="40" width="120" height="46" rx="23"/><text x="80" y="70" text-anchor="middle">BET 80</text></g>
-    <g class="pill" style="--dx:300px;--dy:0px;--d:0.4s"><rect x="20" y="170" width="120" height="46" rx="23"/><text x="80" y="200" text-anchor="middle">BET 80</text></g>
+    <g class="pill" style="--dx:300px;--dy:0px;--d:0.1s"><rect x="20" y="40" width="120" height="46" rx="23"/><text x="80" y="70" text-anchor="middle">BET 80</text></g>
+    <g class="pill" style="--dx:300px;--dy:0px;--d:0.2s"><rect x="20" y="170" width="120" height="46" rx="23"/><text x="80" y="200" text-anchor="middle">BET 80</text></g>
     <rect class="box" x="520" y="20" width="300" height="230" rx="10"/>
     <text class="small" x="550" y="60">Wallet</text>
     <text class="bal bal-100" x="550" y="130">100.00</text>
@@ -467,11 +471,11 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 
 <section class="slide" id="slide-5" aria-label="A mesma aposta 50 vezes">
   <h2>A mesma aposta 50 vezes</h2>
-  <svg class="diagram" data-dots viewBox="0 0 900 260" role="img" aria-label="50 requisições idênticas chegam à wallet: 1 vira débito e 49 voltam como replay.">
-    <rect class="box" x="640" y="80" width="200" height="160" rx="10"/>
-    <text class="small" x="740" y="108" text-anchor="middle">Wallet</text>
-    <text class="debit-label" x="740" y="180" text-anchor="middle">1 débito</text>
-    <text class="replay" x="740" y="222" text-anchor="middle">49 replays</text>
+  <svg class="diagram" data-dots viewBox="0 0 600 260" style="max-width: 760px" role="img" aria-label="50 requisições idênticas chegam à wallet: 1 vira débito e 49 voltam como replay.">
+    <rect class="box" x="200" y="80" width="200" height="160" rx="10"/>
+    <text class="small" x="300" y="108" text-anchor="middle">Wallet</text>
+    <text class="debit-label" x="300" y="180" text-anchor="middle">1 débito</text>
+    <text class="replay" x="300" y="222" text-anchor="middle">49 replays</text>
   </svg>
   <p class="lead">Idempotency-Key e <code>UNIQUE (provider_id, idempotency_key)</code>. Replay devolve o resultado original. Mesma key com payload diferente: 409. Teste C1: 50 em paralelo dão 1 débito e 49 replays.</p>
 </section>
@@ -480,10 +484,10 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
   <h2>Crash no pior momento</h2>
   <svg class="diagram" viewBox="0 0 960 240" role="img" aria-label="Linha do tempo: commit, depois kill -9; a mensagem volta e a inbox barra a duplicata.">
     <line class="axis" x1="60" y1="120" x2="900" y2="120"/>
-    <g class="tl" style="--d:0.3s"><circle class="ok-dot" cx="180" cy="120" r="12"/><text x="180" y="88" text-anchor="middle">commit</text><text class="small" x="180" y="165" text-anchor="middle">1 débito</text></g>
-    <g class="tl" style="--d:1.3s"><circle class="fail-dot" cx="400" cy="120" r="12"/><text x="400" y="88" text-anchor="middle">kill -9</text></g>
-    <g class="tl" style="--d:2.3s"><path class="arrow" d="M412 120 C 460 200, 560 200, 618 120"/><text class="small" x="515" y="200" text-anchor="middle">redelivery</text></g>
-    <g class="tl" style="--d:3.2s"><rect class="box fail-box" x="640" y="80" width="200" height="80" rx="8"/><text x="740" y="115" text-anchor="middle">inbox</text><text class="small" x="740" y="140" text-anchor="middle">duplicata barrada</text></g>
+    <g class="tl" style="--d:0.1s"><circle class="ok-dot" cx="180" cy="120" r="12"/><text x="180" y="88" text-anchor="middle">commit</text><text class="small" x="180" y="165" text-anchor="middle">1 débito</text></g>
+    <g class="tl" style="--d:0.3s"><circle class="fail-dot" cx="400" cy="120" r="12"/><text x="400" y="88" text-anchor="middle">kill -9</text></g>
+    <g class="tl" style="--d:0.5s"><path class="arrow" d="M412 120 C 460 200, 560 200, 618 120"/><text class="small" x="515" y="200" text-anchor="middle">redelivery</text></g>
+    <g class="tl" style="--d:0.7s"><rect class="box fail-box" x="640" y="80" width="200" height="80" rx="8"/><text x="740" y="115" text-anchor="middle">inbox</text><text class="small" x="740" y="140" text-anchor="middle">duplicata barrada</text></g>
   </svg>
   <p class="lead">O processo morre depois do commit e antes do ack. A mensagem volta, e a inbox <code>(consumer_name, message_id)</code>, na mesma transação, detecta a duplicata. Teste C5: 1 débito só.</p>
 </section>
@@ -508,15 +512,15 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
   <svg class="diagram" viewBox="0 0 960 250" role="img" aria-label="Saldo, ledger e outbox são gravados na mesma transação. Depois do commit, o publicador leva os eventos para a fila.">
     <rect class="tx-frame" x="40" y="30" width="400" height="180" rx="12"/>
     <text class="small" x="60" y="60">transação</text>
-    <g class="tl" style="--d:0.3s"><rect class="box" x="70" y="90" width="110" height="60" rx="8"/><text x="125" y="126" text-anchor="middle">saldo</text></g>
-    <g class="tl" style="--d:0.7s"><rect class="box" x="200" y="90" width="110" height="60" rx="8"/><text x="255" y="126" text-anchor="middle">ledger</text></g>
-    <g class="tl" style="--d:1.1s"><rect class="box" x="330" y="90" width="90" height="60" rx="8"/><text x="375" y="126" text-anchor="middle">outbox</text></g>
-    <g class="tl" style="--d:1.6s"><text class="small" x="240" y="196" text-anchor="middle">commit</text></g>
+    <g class="tl" style="--d:0.1s"><rect class="box" x="70" y="90" width="110" height="60" rx="8"/><text x="125" y="126" text-anchor="middle">saldo</text></g>
+    <g class="tl" style="--d:0.2s"><rect class="box" x="200" y="90" width="110" height="60" rx="8"/><text x="255" y="126" text-anchor="middle">ledger</text></g>
+    <g class="tl" style="--d:0.3s"><rect class="box" x="330" y="90" width="90" height="60" rx="8"/><text x="375" y="126" text-anchor="middle">outbox</text></g>
+    <g class="tl" style="--d:0.4s"><text class="small" x="240" y="196" text-anchor="middle">commit</text></g>
     <path class="arrow" d="M440 120 L 560 120"/>
-    <g class="tl" style="--d:2.2s"><rect class="box" x="580" y="70" width="180" height="100" rx="8"/><text x="670" y="92" text-anchor="middle">wallet-events.fifo</text></g>
-    <g class="ev" style="--dx:200px;--dy:0px;--d:2.6s"><circle cx="420" cy="112" r="8"/></g>
-    <g class="ev" style="--dx:200px;--dy:0px;--d:2.8s"><circle cx="420" cy="128" r="8"/></g>
-    <g class="ev" style="--dx:200px;--dy:0px;--d:3s"><circle cx="420" cy="144" r="8"/></g>
+    <g class="tl" style="--d:0.5s"><rect class="box" x="580" y="70" width="180" height="100" rx="8"/><text x="670" y="92" text-anchor="middle">wallet-events.fifo</text></g>
+    <g class="ev" style="--dx:200px;--dy:0px;--d:0.5s"><circle cx="420" cy="112" r="8"/></g>
+    <g class="ev" style="--dx:200px;--dy:0px;--d:0.6s"><circle cx="420" cy="128" r="8"/></g>
+    <g class="ev" style="--dx:200px;--dy:0px;--d:0.7s"><circle cx="420" cy="144" r="8"/></g>
   </svg>
   <p class="lead">Evento gravado na mesma transação do saldo e publicado depois do commit. Publicadores concorrentes com lease e <code>SKIP LOCKED</code>; at-least-once, com dedup por <code>eventId</code>. Teste C6: 300 eventos, cada um publicado 1 vez.</p>
 </section>
@@ -586,40 +590,40 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 
 <section class="slide" id="slide-13" aria-label="Decisões e trade-offs">
   <h2>Decisões e trade-offs</h2>
-  <div class="flips">
-    <div class="flip" style="--i:0"><div class="flip-inner">
-      <div class="face front"><strong>Lock pessimista, não otimista</strong></div>
-      <div class="face back"><h3 class="face-title">Lock pessimista, não otimista</h3><p><em>Por quê:</em> retry em wallet quente vira tempestade. <em>Custo:</em> apostas da mesma wallet esperam na fila do lock.</p></div>
-    </div></div>
-    <div class="flip" style="--i:1"><div class="flip-inner">
-      <div class="face front"><strong>Uma reversão no total (desvio da regra 4)</strong></div>
-      <div class="face back"><h3 class="face-title">Uma reversão no total (desvio da regra 4)</h3><p><em>Desafio:</em> uma reversão por tipo. <em>Feito:</em> uma no total. <em>Por quê:</em> REFUND e ROLLBACK da mesma BET creditariam duas vezes.</p></div>
-    </div></div>
-    <div class="flip" style="--i:2"><div class="flip-inner">
-      <div class="face front"><strong>SQL explícito, sem EntitySchema</strong></div>
-      <div class="face back"><h3 class="face-title">SQL explícito, sem EntitySchema</h3><p><em>Por quê:</em> garantias no banco que o EntitySchema não expressa. <em>Custo:</em> mapeamento escrito à mão.</p></div>
-    </div></div>
-    <div class="flip" style="--i:3"><div class="flip-inner">
-      <div class="face front"><strong>MiniStack em vez de LocalStack</strong></div>
-      <div class="face back"><h3 class="face-title">MiniStack em vez de LocalStack</h3><p><em>Por quê:</em> LocalStack exige token para subir. <em>Custo:</em> é emulação; pode haver diferenças com a AWS.</p></div>
-    </div></div>
-    <div class="flip" style="--i:4"><div class="flip-inner">
-      <div class="face front"><strong>Auth como ponto de extensão</strong></div>
-      <div class="face back"><h3 class="face-title">Auth como ponto de extensão</h3><p><em>Decisão:</em> sem autenticação real, com <code>AuthGuard</code> no-op. <em>Custo:</em> nenhum controle de acesso (README §2).</p></div>
-    </div></div>
-    <div class="flip" style="--i:5"><div class="flip-inner">
-      <div class="face front"><strong>FAILED é terminal</strong></div>
-      <div class="face back"><h3 class="face-title">FAILED é terminal</h3><p><em>Por quê:</em> trigger <code>wager_tx_guard</code> bloqueia mudança de estado final. <em>Custo:</em> a correção é operacional, pela DLQ.</p></div>
-    </div></div>
-  </div>
+  <ul class="decisions">
+    <li class="decision" style="--i:0">
+      <h3 class="decision-title">Lock pessimista, não otimista</h3>
+      <p><em>Por quê:</em> retry em wallet quente vira tempestade. <em>Custo:</em> apostas da mesma wallet esperam na fila do lock.</p>
+    </li>
+    <li class="decision" style="--i:1">
+      <h3 class="decision-title">Uma reversão no total (desvio da regra 4)</h3>
+      <p><em>Desafio:</em> uma reversão por tipo. <em>Feito:</em> uma no total. <em>Por quê:</em> REFUND e ROLLBACK da mesma BET creditariam duas vezes.</p>
+    </li>
+    <li class="decision" style="--i:2">
+      <h3 class="decision-title">SQL explícito, sem EntitySchema</h3>
+      <p><em>Por quê:</em> garantias no banco que o EntitySchema não expressa. <em>Custo:</em> mapeamento escrito à mão.</p>
+    </li>
+    <li class="decision" style="--i:3">
+      <h3 class="decision-title">MiniStack em vez de LocalStack</h3>
+      <p><em>Por quê:</em> LocalStack exige token para subir. <em>Custo:</em> é emulação; pode haver diferenças com a AWS.</p>
+    </li>
+    <li class="decision" style="--i:4">
+      <h3 class="decision-title">Auth como ponto de extensão</h3>
+      <p><em>Decisão:</em> sem autenticação real, com <code>AuthGuard</code> no-op. <em>Custo:</em> nenhum controle de acesso (README §2).</p>
+    </li>
+    <li class="decision" style="--i:5">
+      <h3 class="decision-title">FAILED é terminal</h3>
+      <p><em>Por quê:</em> trigger <code>wager_tx_guard</code> bloqueia mudança de estado final. <em>Custo:</em> a correção é operacional, pela DLQ.</p>
+    </li>
+  </ul>
 </section>
 
 <section class="slide" id="slide-14" aria-label="Rode você mesmo">
   <h2>Rode você mesmo</h2>
-  <pre class="term" aria-label="Comandos"><code><span class="cmd" style="--d:0.3s">docker compose up -d --build --scale app=3</span>
-<span class="cmd" style="--d:1.4s">bun run test</span>
-<span class="cmd" style="--d:2.2s">bun run test:load</span>
-<span class="cmd" style="--d:3s">docker compose --profile observability up -d --build --scale app=3</span></code></pre>
+  <pre class="term" aria-label="Comandos"><code><span class="cmd" style="--d:0.1s">docker compose up -d --build --scale app=3</span>
+<span class="cmd" style="--d:0.3s">bun run test</span>
+<span class="cmd" style="--d:0.5s">bun run test:load</span>
+<span class="cmd" style="--d:0.7s">docker compose --profile observability up -d --build --scale app=3</span></code></pre>
   <p class="lead">API e OpenAPI em <code>localhost:3001/docs</code>. Detalhes nos documentos:</p>
   <ul class="links">
     <li><a href="../../README.md">README</a></li>
@@ -760,7 +764,7 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 
   window.addEventListener("hashchange", function () { go(fromHash()); });
 
-  // Slide 5: 50 pontos de requisição, gerados aqui para não repetir marcação.
+  // Slide 5: 50 pontos de requisição, gerados aqui para não repetir marcação. A wallet fica no centro (x 300).
   // O primeiro vira o débito; os outros 49 somem na wallet como replay.
   var NS = "http://www.w3.org/2000/svg";
   document.querySelectorAll("svg[data-dots]").forEach(function (svg) {
@@ -773,7 +777,7 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
       c.setAttribute("r", 9);
       c.setAttribute("class", i === 0 ? "dot debit" : "dot");
       c.style.setProperty("--i", i);
-      c.style.setProperty("--tx", (740 - cx) + "px");
+      c.style.setProperty("--tx", (300 - cx) + "px");
       c.style.setProperty("--ty", (140 - cy) + "px");
       svg.appendChild(c);
     }
