@@ -1,9 +1,11 @@
 import { Controller, Get, Inject, Res, type OnApplicationShutdown } from "@nestjs/common";
+import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { Pool } from "pg";
 import { APP_CONFIG, type AppConfig } from "../../config/config";
 import { TransientInfrastructureError } from "../../application/errors";
 import { QUEUE_PORT, type QueuePort } from "../../application/ports/queue";
 import { LifecycleState } from "../../infrastructure/system/lifecycle-state";
+import { ErrorResponseDto, HealthDto, NotReadyDto } from "./openapi";
 
 /** Subconjunto de Express Response usado aqui; evita depender de @types/express. */
 interface ResponseLike {
@@ -14,6 +16,7 @@ interface ResponseLike {
  * Liveness: processo vivo. Readiness: SELECT 1 no PostgreSQL e `QueuePort.ping()` no SQS.
  * Durante o shutdown, readiness responde 503 SHUTTING_DOWN, e liveness segue 200 até o fim.
  */
+@ApiTags("health")
 @Controller("health")
 export class HealthController implements OnApplicationShutdown {
   private readonly pool: Pool;
@@ -40,11 +43,16 @@ export class HealthController implements OnApplicationShutdown {
   }
 
   @Get("live")
+  @ApiOperation({ summary: "Processo vivo; continua 200 até o fim do shutdown" })
+  @ApiResponse({ status: 200, type: HealthDto })
   live(): { status: string } {
     return { status: "ok" };
   }
 
   @Get("ready")
+  @ApiOperation({ summary: "Pronto para receber tráfego: PostgreSQL e SQS alcançáveis" })
+  @ApiResponse({ status: 200, type: HealthDto })
+  @ApiResponse({ status: 503, description: "`SHUTTING_DOWN` durante o shutdown, ou dependência fora (`INFRA_UNAVAILABLE`).", type: NotReadyDto })
   async ready(@Res({ passthrough: true }) res: ResponseLike): Promise<{ status: string } | { error: { code: string; message: string } }> {
     if (this.lifecycle.isShuttingDown()) {
       res.status(503);
