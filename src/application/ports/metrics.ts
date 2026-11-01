@@ -15,6 +15,8 @@ export interface Metrics {
   reconciliationMismatch(): void;
   /** Fim de uma execução completa do job de reconciliação: `checked` wallets conferidas, em `finishedAtSeconds` (epoch). */
   reconciliationRun(checked: number, finishedAtSeconds: number): void;
+  /** Uma wallet falhou na conferência da reconciliação; a rodada segue para as outras. */
+  reconciliationError(): void;
 }
 
 export const METRICS = Symbol("METRICS");

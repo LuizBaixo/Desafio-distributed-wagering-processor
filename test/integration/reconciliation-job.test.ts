@@ -1,7 +1,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { INestApplication } from "@nestjs/common";
 import { ReconcileAllWallets } from "../../src/application/wallet/reconcile-all-wallets";
+import { ReconcileWallet } from "../../src/application/wallet/reconcile-wallet";
 import type { Logger } from "../../src/application/ports/logger";
+import { CLOCK, METRICS, UNIT_OF_WORK } from "../../src/application/ports/tokens";
 import { PgAdvisoryLock } from "../../src/infrastructure/persistence/pg-advisory-lock";
 import { ReconciliationWorker } from "../../src/interfaces/workers/reconciliation.worker";
 import { loadConfig } from "../../src/config/config";
@@ -55,7 +57,7 @@ describe("ReconcileAllWallets", () => {
 
     const result = await container.get(ReconcileAllWallets).run();
 
-    expect(result).toEqual({ checked: 4, inconsistent: [corrupted.walletId] });
+    expect(result).toEqual({ checked: 4, inconsistent: [corrupted.walletId], errors: [] });
     expect(await metric("reconciliation_mismatches_total")).toBe(mismatchBefore + 1);
   });
 
@@ -82,6 +84,48 @@ describe("ReconcileAllWallets", () => {
     expect(await metric("reconciliation_runs_total")).toBe(runsBefore + 1);
     expect(await metric("reconciliation_wallets_checked_total")).toBe(checkedBefore + 2);
     expect(await metric("reconciliation_last_run_timestamp_seconds")).toBeGreaterThan(Date.now() / 1000 - 60);
+  });
+
+  test("a wallet whose check throws does not stop the run: errors=[id], reconciliation_errors_total +1", async () => {
+    const wallets: DirectWallet[] = [];
+    for (let i = 0; i < 3; i++) wallets.push(await createWalletDirect("100.00"));
+    const broken = wallets[1]!.walletId;
+    const real = new ReconcileWallet(container.get(UNIT_OF_WORK), silent, container.get(METRICS));
+    const flaky = {
+      execute: async (id: string) => {
+        if (id === broken) throw new Error("boom");
+        return real.execute(id);
+      },
+    } as unknown as ReconcileWallet;
+    const job = new ReconcileAllWallets(
+      container.get(UNIT_OF_WORK),
+      flaky,
+      container.get(CLOCK),
+      container.get(METRICS),
+      silent,
+    );
+    const errorsBefore = await metric("reconciliation_errors_total");
+
+    const result = await job.run();
+
+    expect(result.errors).toEqual([broken]);
+    expect(result.checked).toBe(2);
+    expect(result.inconsistent).toEqual([]);
+    expect(await metric("reconciliation_errors_total")).toBe(errorsBefore + 1);
+  });
+
+  test("a run interrupted by shouldStop does not record a completed run", async () => {
+    for (let i = 0; i < 3; i++) await createWalletDirect("10.00");
+    const runsBefore = await metric("reconciliation_runs_total");
+    const checkedBefore = await metric("reconciliation_wallets_checked_total");
+    let calls = 0;
+
+    // Chamadas: página (1), 1ª wallet (2, segue), 2ª wallet (3, para).
+    const result = await container.get(ReconcileAllWallets).run(() => ++calls > 2);
+
+    expect(result.checked).toBe(1);
+    expect(await metric("reconciliation_runs_total")).toBe(runsBefore);
+    expect(await metric("reconciliation_wallets_checked_total")).toBe(checkedBefore);
   });
 
   test("a concurrent HTTP bet on a wallet being reconciled answers 200", async () => {
@@ -118,7 +162,7 @@ describe("ReconciliationWorker (advisory lock)", () => {
         run: async () => {
           started();
           await gate;
-          return { checked: 7, inconsistent: [] as string[] };
+          return { checked: 7, inconsistent: [] as string[], errors: [] as string[] };
         },
       },
     };
@@ -130,7 +174,7 @@ describe("ReconciliationWorker (advisory lock)", () => {
   test("two workers at the same time: one runs, the other is skipped; afterwards the lock is free again", async () => {
     const first = gatedJob();
     const a = worker(first.job);
-    const b = worker({ run: async () => ({ checked: 99, inconsistent: [] }) });
+    const b = worker({ run: async () => ({ checked: 99, inconsistent: [], errors: [] }) });
 
     const running = a.runOnce();
     await first.hasStarted;
@@ -138,9 +182,9 @@ describe("ReconciliationWorker (advisory lock)", () => {
     expect(second).toEqual({ status: "skipped" });
 
     first.release();
-    expect(await running).toEqual({ status: "completed", checked: 7, inconsistent: [] });
+    expect(await running).toEqual({ status: "completed", checked: 7, inconsistent: [], errors: [] });
 
-    expect(await b.runOnce()).toEqual({ status: "completed", checked: 99, inconsistent: [] });
+    expect(await b.runOnce()).toEqual({ status: "completed", checked: 99, inconsistent: [], errors: [] });
   });
 
   test("the lock survives commits of other connections during the cycle (dedicated connection)", async () => {
@@ -166,10 +210,11 @@ describe("ReconciliationWorker (advisory lock)", () => {
       },
     });
     await expect(failing.runOnce()).rejects.toThrow("boom");
-    expect(await worker({ run: async () => ({ checked: 1, inconsistent: [] }) }).runOnce()).toEqual({
+    expect(await worker({ run: async () => ({ checked: 1, inconsistent: [], errors: [] }) }).runOnce()).toEqual({
       status: "completed",
       checked: 1,
       inconsistent: [],
+      errors: [],
     });
   });
 });

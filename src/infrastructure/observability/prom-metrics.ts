@@ -78,6 +78,12 @@ export class PromMetrics implements Metrics {
     registers: [this.registry],
   });
 
+  private readonly reconciliationErrors = new Counter({
+    name: "reconciliation_errors_total",
+    help: "Wallets que falharam na conferência da reconciliação",
+    registers: [this.registry],
+  });
+
   private readonly reconciliationLastRun = new Gauge({
     name: "reconciliation_last_run_timestamp_seconds",
     help: "Fim da última execução completa do job de reconciliação (epoch, em segundos)",
@@ -124,5 +130,9 @@ export class PromMetrics implements Metrics {
     this.reconciliationRuns.inc();
     this.reconciliationChecked.inc(checked);
     this.reconciliationLastRun.set(finishedAtSeconds);
+  }
+
+  reconciliationError(): void {
+    this.reconciliationErrors.inc();
   }
 }

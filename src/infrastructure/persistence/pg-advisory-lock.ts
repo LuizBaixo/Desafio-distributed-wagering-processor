@@ -13,11 +13,16 @@ export class PgAdvisoryLock implements ExclusiveRunner {
   constructor(private readonly connectionString: string) {}
 
   async runExclusive<T>(name: string, work: () => Promise<T>): Promise<ExclusiveResult<T>> {
-    const client = new Client({ connectionString: this.connectionString });
+    // Timeouts: sem eles, um banco que não responde trava o ciclo inteiro com o lock em mãos.
+    const client = new Client({
+      connectionString: this.connectionString,
+      connectionTimeoutMillis: 5000,
+      query_timeout: 5000,
+    });
     // Queda da conexão no meio do ciclo: o servidor libera o lock sozinho; o erro não pode derrubar o processo.
     client.on("error", () => undefined);
-    await client.connect();
     try {
+      await client.connect();
       const res = await client.query<{ locked: boolean }>("SELECT pg_try_advisory_lock(hashtext($1)) AS locked", [name]);
       if (!res.rows[0]?.locked) return { acquired: false };
       try {
