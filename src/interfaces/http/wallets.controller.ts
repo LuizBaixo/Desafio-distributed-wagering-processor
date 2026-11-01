@@ -1,6 +1,5 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiBody, ApiHeader, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { InvalidPayloadError, NotFoundError } from "../../application/errors";
 import { CreateWallet, type WalletView } from "../../application/wallet/create-wallet";
@@ -10,6 +9,9 @@ import {
   type LedgerPage,
 } from "../../application/wallet/wallet-queries";
 import { ReconcileWallet, type ReconciliationView } from "../../application/wallet/reconcile-wallet";
+import { ADMIN_SCOPE } from "../../infrastructure/auth/principal";
+import { AuthGuard, RequireScope } from "./auth.guard";
+import { safeCorrelationId } from "./correlation-id";
 import { decodeCursor, encodeCursor } from "./cursor";
 import {
   CreateWalletBodyDto,
@@ -29,6 +31,8 @@ const createWalletBody = z.strictObject({
 
 @ApiTags("wallets")
 @Controller("wallets")
+@UseGuards(AuthGuard)
+@RequireScope(ADMIN_SCOPE)
 export class WalletsController {
   constructor(
     private readonly createWallet: CreateWallet,
@@ -64,7 +68,7 @@ export class WalletsController {
         playerId,
         initialBalance: { amount: initialBalance.amount as string, currency: initialBalance.currency as string },
       },
-      { correlationId: correlationId ?? randomUUID() },
+      { correlationId: safeCorrelationId(correlationId) },
     );
   }
 

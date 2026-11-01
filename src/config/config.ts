@@ -3,7 +3,14 @@ import { z } from "zod";
 export const APP_ROLES = ["api", "consumer", "outbox", "pending", "reconciler", "retention"] as const;
 export type AppRole = (typeof APP_ROLES)[number];
 
+export type AuthConfig =
+  | { mode: "disabled" }
+  | { mode: "oidc"; issuer: string; audience: string; jwksUrl: string };
+
 export interface AppConfig {
+  /** `NODE_ENV=production`: ativa as validações de configuração segura. */
+  production: boolean;
+  auth: AuthConfig;
   port: number;
   /** Swagger UI em /docs e /docs-json. */
   docsEnabled: boolean;
@@ -29,6 +36,12 @@ export interface AppConfig {
 }
 
 const envSchema = z.object({
+  NODE_ENV: z.string().optional(),
+  AUTH_MODE: z.enum(["disabled", "oidc"]).optional(),
+  OIDC_ISSUER: z.string().min(1).optional(),
+  OIDC_AUDIENCE: z.string().min(1).optional(),
+  OIDC_JWKS_URL: z.string().url().optional(),
+  AWS_ACCESS_KEY_ID: z.string().optional(),
   PORT: z.coerce.number().int().positive().default(3000),
   DATABASE_URL: z.string().min(1),
   SQS_ENDPOINT: z.string().url(),
@@ -62,6 +75,9 @@ const envSchema = z.object({
   DOCS_ENABLED: z.enum(["true", "false"]).optional(),
 });
 
+/** Senhas padrão dos papéis de desenvolvimento (docker-compose, init-roles.sql). */
+const DEFAULT_DB_PASSWORDS = ["postgres:postgres", ":owner@", ":app@"];
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = envSchema.safeParse(env);
   if (!parsed.success) {
@@ -69,7 +85,32 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`invalid configuration: ${details}`);
   }
   const e = parsed.data;
+  const production = e.NODE_ENV === "production";
+  const problems: string[] = [];
+
+  if (e.AUTH_MODE === "oidc") {
+    for (const name of ["OIDC_ISSUER", "OIDC_AUDIENCE", "OIDC_JWKS_URL"] as const) {
+      if (e[name] === undefined) problems.push(`${name}: required when AUTH_MODE=oidc`);
+    }
+  }
+  if (production) {
+    if (e.AUTH_MODE === undefined) problems.push("AUTH_MODE: must be set explicitly (disabled or oidc) in production");
+    // A mensagem nomeia a variável e nunca repete o valor, que carrega a senha.
+    if (DEFAULT_DB_PASSWORDS.some((p) => e.DATABASE_URL.includes(p))) {
+      problems.push("DATABASE_URL: contains a default password, which is not allowed in production");
+    }
+    if (e.AWS_ACCESS_KEY_ID === "test") problems.push("AWS_ACCESS_KEY_ID: the development value 'test' is not allowed in production");
+  }
+  if (problems.length > 0) throw new Error(`invalid configuration: ${problems.join("; ")}`);
+
+  const auth: AuthConfig =
+    e.AUTH_MODE === "oidc"
+      ? { mode: "oidc", issuer: e.OIDC_ISSUER!, audience: e.OIDC_AUDIENCE!, jwksUrl: e.OIDC_JWKS_URL! }
+      : { mode: "disabled" };
+
   return {
+    production,
+    auth,
     port: e.PORT,
     docsEnabled: e.DOCS_ENABLED !== undefined ? e.DOCS_ENABLED === "true" : env.NODE_ENV !== "production",
     databaseUrl: e.DATABASE_URL,

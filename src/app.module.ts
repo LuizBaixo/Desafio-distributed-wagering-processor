@@ -17,6 +17,7 @@ import { CLOCK, ID_GENERATOR, UNIT_OF_WORK } from "./application/ports/tokens";
 import type { Clock } from "./application/ports/clock";
 import type { IdGenerator } from "./application/ports/id-generator";
 import type { UnitOfWork } from "./application/ports/unit-of-work";
+import { AuthModule } from "./interfaces/http/auth.module";
 import { HealthController } from "./interfaces/http/health.controller";
 import { MetricsController } from "./interfaces/http/metrics.controller";
 import { WalletsController } from "./interfaces/http/wallets.controller";
@@ -40,6 +41,7 @@ export class AppModule {
           pinoHttp: { logger: createLogger(), autoLogging: false },
         }),
         ConfigModule.register(config),
+        AuthModule.register(),
         PersistenceModule,
         SystemModule,
         WageringModule,

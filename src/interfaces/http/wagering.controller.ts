@@ -1,12 +1,13 @@
-import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Inject, Param, ParseUUIDPipe, Post, Res, UseGuards } from "@nestjs/common";
 import { ApiBody, ApiHeader, ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
-import { randomUUID } from "node:crypto";
 import { NotFoundError } from "../../application/errors";
 import { parseWagerCommand } from "../../application/wagering/wager-command";
 import type { WagerOutcome } from "../../application/wagering/wager-outcome";
 import { SubmitWagerTransaction } from "../../application/wagering/submit-wager-transaction";
 import { WagerQueries, type WagerTransactionView } from "../../application/wagering/wager-queries";
-import { AuthGuard } from "./auth.guard";
+import type { Principal } from "../../infrastructure/auth/principal";
+import { AuthGuard, CurrentPrincipal, PROVIDER_IDENTITY, type ProviderIdentityPort } from "./auth.guard";
+import { safeCorrelationId } from "./correlation-id";
 import {
   ErrorResponseDto,
   WagerCommandBodyDto,
@@ -56,6 +57,7 @@ export class WageringController {
   constructor(
     private readonly submit: SubmitWagerTransaction,
     private readonly queries: WagerQueries,
+    @Inject(PROVIDER_IDENTITY) private readonly identity: ProviderIdentityPort,
   ) {}
 
   @Post("wagering/transactions")
@@ -88,9 +90,12 @@ export class WageringController {
     @Headers("idempotency-key") idempotencyKey: string | undefined,
     @Headers("x-correlation-id") correlationId: string | undefined,
     @Res({ passthrough: true }) res: StatusSetter,
+    @CurrentPrincipal() principal: Principal | undefined,
   ): Promise<unknown> {
     const cmd = parseWagerCommand(body, idempotencyKey);
-    const result = await this.submit.execute(cmd, { correlationId: correlationId ?? randomUUID() });
+    // O provedor do token é o único em nome de quem se pode apostar.
+    this.identity.assertCanActAs(principal, cmd.providerId);
+    const result = await this.submit.execute(cmd, { correlationId: safeCorrelationId(correlationId) });
     if (result.kind === "duplicateMessage") {
       // Só existe com inbox (SQS); o HTTP nunca passa `inbox`.
       throw new Error("unexpected duplicateMessage on HTTP");
@@ -104,9 +109,13 @@ export class WageringController {
   @ApiResponse({ status: 200, type: WagerTransactionDto })
   @ApiResponse({ status: 400, description: "`transactionId` não é UUID.", type: ErrorResponseDto })
   @ApiResponse({ status: 404, description: "Transação não encontrada.", type: ErrorResponseDto })
-  async getById(@Param("transactionId", ParseUUIDPipe) transactionId: string): Promise<WagerTransactionView> {
+  async getById(
+    @Param("transactionId", ParseUUIDPipe) transactionId: string,
+    @CurrentPrincipal() principal: Principal | undefined,
+  ): Promise<WagerTransactionView> {
     const view = await this.queries.byId(transactionId);
-    if (!view) throw new NotFoundError("transaction not found");
+    // Transação de outro provedor responde 404, igual a inexistente, para não revelar que existe.
+    if (!view || !this.identity.canActAs(principal, view.providerId)) throw new NotFoundError("transaction not found");
     return view;
   }
 
@@ -119,7 +128,9 @@ export class WageringController {
   async getByExternalId(
     @Param("providerId") providerId: string,
     @Param("externalTransactionId") externalTransactionId: string,
+    @CurrentPrincipal() principal: Principal | undefined,
   ): Promise<WagerTransactionView> {
+    this.identity.assertCanActAs(principal, providerId);
     const view = await this.queries.byExternalId(providerId, externalTransactionId);
     if (!view) throw new NotFoundError("transaction not found");
     return view;

@@ -8,9 +8,11 @@ import {
 import {
   ConcurrencyViolationError,
   DuplicateWalletError,
+  ForbiddenError,
   InvalidPayloadError,
   NotFoundError,
   TransientInfrastructureError,
+  UnauthorizedError,
 } from "../../application/errors";
 import { InvalidMoneyError } from "../../domain/shared/domain-error";
 
@@ -42,6 +44,12 @@ interface Mapped {
 function map(exception: unknown): Mapped {
   if (exception instanceof InvalidPayloadError) {
     return { status: 400, code: exception.code, message: exception.message };
+  }
+  if (exception instanceof UnauthorizedError) {
+    return { status: 401, code: exception.code, message: exception.message };
+  }
+  if (exception instanceof ForbiddenError) {
+    return { status: 403, code: exception.code, message: exception.message };
   }
   if (exception instanceof InvalidMoneyError) {
     return { status: 400, code: "INVALID_MONEY", message: exception.message };

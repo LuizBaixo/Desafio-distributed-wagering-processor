@@ -192,6 +192,29 @@ bash scripts/ci-local.sh
 
 O script exige que a infra de teste já esteja de pé no host. Ele usa `TEST_DB_NAME` (padrão `wagering_ci`) e `TEST_PORT_BASE` (padrão `4101`) do ambiente e sai com o código de falha.
 
+## Autenticação
+
+A autenticação é delegada a um IdP via OIDC/JWT; o serviço só valida tokens. Duas configurações, por `AUTH_MODE`:
+
+- `disabled` (padrão fora de produção): nenhuma rota exige token. É o modo de dev e dos testes.
+- `oidc`: exige `OIDC_ISSUER`, `OIDC_AUDIENCE` e `OIDC_JWKS_URL`. O token (`Authorization: Bearer ...`) é verificado com o JWKS do IdP: assinatura RS256 ou ES256, `iss`, `aud` e `exp`.
+
+Claims usadas: `provider_id` (o provedor) e `scope` (lista separada por espaços; `wallet:admin` marca o operador).
+
+| Rota | Regra | Falha |
+|---|---|---|
+| `POST /wagering/transactions` | `provider_id` igual a `providerId` do body | 403 `PROVIDER_MISMATCH` |
+| `GET /wagering/transactions/:id` | transação do provedor do token | 404 (igual a inexistente) |
+| `GET /providers/:providerId/...` | `:providerId` igual a `provider_id` | 403 `PROVIDER_MISMATCH` |
+| `/wallets*` (criar, consultar, ledger, reconciliação) | scope `wallet:admin` | 403 `FORBIDDEN_SCOPE` |
+| qualquer rota acima | token ausente, expirado ou inválido | 401 `UNAUTHORIZED` |
+
+`/health` e `/metrics` não têm autenticação: o serviço assume rede interna para eles. O consumidor SQS segue como canal interno confiável.
+
+Com `NODE_ENV=production` a configuração é validada na subida: `AUTH_MODE` precisa estar definido, `DATABASE_URL` não pode usar as senhas padrão (`postgres:postgres`, `:owner@`, `:app@`) e `AWS_ACCESS_KEY_ID` não pode ser `test`. `AUTH_MODE=disabled` em produção sobe, mas registra um aviso.
+
+O `X-Correlation-Id` só é aceito no formato `^[A-Za-z0-9._:-]{1,128}$`; fora dele, o servidor gera um novo.
+
 ## Endpoints
 
 Todos os exemplos usam a instância em `localhost:3001`. Dinheiro é sempre `{ "amount": "25.00", "currency": "BRL" }`: string decimal com exatamente 2 casas.

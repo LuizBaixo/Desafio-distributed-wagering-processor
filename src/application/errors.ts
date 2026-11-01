@@ -89,3 +89,26 @@ export function isUniqueViolation(e: unknown, constraints?: string[]): boolean {
   }
   return false;
 }
+
+/** Credencial ausente ou inválida. HTTP 401 `UNAUTHORIZED`. */
+export class UnauthorizedError extends Error {
+  readonly code = "UNAUTHORIZED";
+
+  constructor(message = "missing or invalid credentials") {
+    super(message);
+    this.name = "UnauthorizedError";
+  }
+}
+
+export type ForbiddenCode = "PROVIDER_MISMATCH" | "FORBIDDEN_SCOPE";
+
+/** Identidade válida, mas sem permissão para o recurso. HTTP 403. */
+export class ForbiddenError extends Error {
+  constructor(
+    message: string,
+    readonly code: ForbiddenCode,
+  ) {
+    super(message);
+    this.name = "ForbiddenError";
+  }
+}

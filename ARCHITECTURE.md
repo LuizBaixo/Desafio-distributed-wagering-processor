@@ -231,14 +231,24 @@ Quando a referência ainda não existe, a transação grava `PENDING_REFERENCE` 
 
 ## 14. Autenticação
 
-**Decisão: não implementar autenticação real.** O desafio aceita a decisão, desde que documentada (README §2).
+**Decisão: a autenticação é delegada a um IdP via OIDC/JWT.** O serviço não guarda credenciais nem emite tokens; só valida.
 
-- Endpoints de negócio têm `AuthGuard` no-op, aplicado no ponto de extensão.
-- `ProviderIdentityPort.assertCanActAs(providerId)` é o ponto de extensão para validar a identidade do provedor (no-op por enquanto).
-- Health e métricas não exigem autenticação.
+- `AUTH_MODE` = `disabled` ou `oidc`. Em `oidc`, `OIDC_ISSUER`, `OIDC_AUDIENCE` e `OIDC_JWKS_URL` são obrigatórias. `disabled` mantém o comportamento aberto, usado em dev e nos testes.
+- `OidcTokenVerifier` (`src/infrastructure/auth`) usa `jose` (`createRemoteJWKSet` e `jwtVerify`) e confere issuer, audience, `exp` e algoritmo (só RS256 e ES256).
+- `AuthGuard` extrai o bearer, rejeita com 401 `UNAUTHORIZED` (sem revelar o motivo) e anexa o `Principal` (`provider_id`, `scope`) à requisição. `@RequireScope` adiciona a checagem de scope.
+- `ProviderIdentityPort` tem duas implementações: `NoopProviderIdentity` (`disabled`) e `ClaimsProviderIdentity` (`oidc`), que compara o claim `provider_id` com o provedor pedido.
+
+| Rota | Regra | Falha |
+|---|---|---|
+| `POST /wagering/transactions` | `provider_id` = `body.providerId` | 403 `PROVIDER_MISMATCH` |
+| `GET /wagering/transactions/:id` | `tx.providerId` = `provider_id` | 404, para não revelar a existência |
+| `GET /providers/:providerId/...` | `:providerId` = `provider_id` | 403 `PROVIDER_MISMATCH` |
+| `/wallets*` | scope `wallet:admin` | 403 `FORBIDDEN_SCOPE` |
+
+- Health e métricas não exigem autenticação (rede interna).
 - Mensagens SQS são tratadas como canal interno confiável; a identidade do provedor no corpo continua sujeita às validações de domínio.
-
-**Desenho adotado se houvesse IdP:** Keycloak em Docker Compose (OIDC client credentials por provedor). O token traz o claim `provider_id`, que precisa ser igual ao `providerId` do body. Esse seria o único lugar que faria a checagem de `ProviderIdentityPort`. Zitadel serviria igualmente.
+- Com `NODE_ENV=production`, `loadConfig` falha se `AUTH_MODE` não estiver definido, se `DATABASE_URL` usar senha padrão ou se `AWS_ACCESS_KEY_ID` for `test`. `AUTH_MODE=disabled` em produção sobe com um aviso no log.
+- `X-Correlation-Id` só é aceito no formato `^[A-Za-z0-9._:-]{1,128}$`; o valor recebido fora dele nunca é refletido.
 
 ## 15. Interpretações adotadas
 
