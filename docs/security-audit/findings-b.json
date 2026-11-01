@@ -252,7 +252,10 @@
         "resposta 400 com chave inesperada não excede um limite de tamanho",
         "cabeçalho X-Content-Type-Options: nosniff presente"
       ],
-      "issueGroup": "headers-http"
+      "issueGroup": "headers-http",
+      "status": "parcial",
+      "fixedIn": "e3f86d9",
+      "note": "X-Content-Type-Options: nosniff corrigido via helmet. Limite de tamanho das chaves ecoadas em wager-command.ts não implementado."
     }
   ],
   "strengths": [

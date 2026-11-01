@@ -1,0 +1,292 @@
+{
+  "auditor": "A",
+  "stack": {
+    "language": "TypeScript estrito (Bun 1.4.4)",
+    "framework": "NestJS 11 (Express), nestjs-pino, @nestjs/swagger",
+    "orm": "MikroORM (PostgreSQL) usado só como executor; todo SQL é explícito em src/infrastructure/persistence/repositories com placeholders ?",
+    "auth": "Nenhuma. AuthGuard é no-op (src/interfaces/http/auth.guard.ts:3-9) e NoopProviderIdentity não é chamado; decisão documentada em ARCHITECTURE §14",
+    "frontend": "Sem SPA. Apenas apresentação estática (docs/apresentacao/index.html) e Swagger UI em /docs",
+    "deploy": [
+      "docker-compose (app em 0.0.0.0, portas 3001-3003 no host)",
+      "PostgreSQL 17 com papéis wagering_owner/wagering_app",
+      "MiniStack (SQS)",
+      "Prometheus/Grafana/Jaeger (profile observability)"
+    ]
+  },
+  "methodology": {
+    "1": "Não existe usuário nem tenant. O único eixo de escopo é providerId, enviado pelo cliente no body (POST /wagering/transactions) ou no path (GET /providers/:providerId/...). Verifiquei se o mecanismo de isolamento existe: a tabela wallets não tem provider_id (Migration20261031000001_initial.ts:15-27), as queries de wallet/ledger filtram só por wallet_id, e providerId só entra nas chaves de idempotência e de id externo. Não há endpoint de listagem ou busca (nenhum GET devolve coleção além do ledger paginado de UMA wallet), então não há query de listagem sem filtro. O ledger filtra por wallet_id (ledger.repository.ts:34-37).",
+    "2": "Não se aplica no sentido clássico: não há frontend com permissões, papéis ou flags no navegador. O Swagger UI só documenta e executa as mesmas chamadas HTTP; a apresentação é HTML estático sem lógica de autorização. Nenhuma decisão de acesso é tomada no cliente porque nenhuma é tomada em lugar algum (ver A-01).",
+    "3": "Percorri os 8 handlers HTTP com ID no path/query/body (wagering.controller.ts: 3 rotas; wallets.controller.ts: 4 rotas) mais health e metrics. Nenhum tem checagem de posse, pois não há identidade a comparar (guard no-op). Os IDs são UUID validados por ParseUUIDPipe (wallets e transactionId) ou strings livres (providerId, externalTransactionId).",
+    "4": "Fora do meu escopo (Auditor B).",
+    "5": "Fora do meu escopo (Auditor B).",
+    "extra": "SQL injection: li todo SQL em src/infrastructure/persistence; 100% parametrizado com ? exceto duas interpolações revisadas (SET LOCAL lock_timeout e WHERE montado por constantes em selectOne); sem achado explorável. Validação: zod strictObject com limites de 128 chars no body de aposta, regex de UUID, Idempotency-Key até 255, limit do ledger com teto 200, cursor validado por re-encode. DoS: body sem limite configurado (padrão do Express, 100 kb), sem rate limit. Headers/CORS: main.ts não configura helmet nem CORS. /metrics, /docs, /docs-json e /health/* públicos. Erros: filtro devolve 500 genérico. Não rodei testes que alterem a infra compartilhada; auditoria só de leitura."
+  },
+  "coverage": [
+    "src/main.ts, src/app.module.ts (filtro global, logger, interceptor)",
+    "src/interfaces/http/*.ts: wagering.controller, wallets.controller, health.controller, metrics.controller, auth.guard, cursor, http-error.filter, tracing.interceptor, openapi, wagering.module",
+    "src/infrastructure/persistence/*: sql.ts, mikro-unit-of-work.ts, pg-advisory-lock.ts, persistence.module.ts, repositories/*.ts (5 arquivos), migrations (schema wallets/wager_transactions)",
+    "src/application/wagering/{wager-command,submit-wager-transaction,wager-queries}.ts e src/application/wallet/{wallet-queries,reconcile-wallet}.ts",
+    "src/config/config.ts, infra/postgres/init-roles.sql, docker-compose.yml, Dockerfile",
+    "Buscas por interpolação de template em SQL (grep em src/infrastructure/persistence e src/application)",
+    "ARCHITECTURE.md §14 e nota 03-Plano/Auditoria de Seguranca.md"
+  ],
+  "findings": [
+    {
+      "id": "A-01",
+      "category": "3",
+      "severity": "alta",
+      "title": "Leitura e reconciliação de wallet, ledger e transação sem autenticação nem checagem de posse (IDOR)",
+      "file": "src/interfaces/http/wallets.controller.ts",
+      "lines": "71-81, 83-103, 105-119",
+      "snippet": "@Get(\":walletId\")\n  async get(@Param(\"walletId\", ParseUUIDPipe) walletId: string): Promise<WalletView> {\n    const wallet = await this.queries.get(walletId);\n    if (!wallet) throw new NotFoundError(\"wallet not found\");\n    return wallet;\n  }",
+      "description": "GET /wallets/:walletId, GET /wallets/:walletId/ledger, POST /wallets/:walletId/reconciliation e GET /wagering/transactions/:transactionId (wagering.controller.ts:101-111) aceitam qualquer UUID e devolvem saldo, playerId, lançamentos e a transação inteira (idempotencyKey, providerId, externalTransactionId, playerId, roundId, gameId) sem verificar quem pergunta. wallets.controller.ts não tem nem @UseGuards; wagering.controller.ts usa AuthGuard, que retorna true sempre (auth.guard.ts:6-8).",
+      "exploitability": "Exige conhecer ou adivinhar o UUID. wallet.id vem de IdGenerator (UUID ordenável no tempo, entropia reduzida) e o transactionId/walletId também aparece em respostas, eventos SQS, logs e spans (wager.submit grava wallet.id e provider.id). Explorável por qualquer cliente com acesso de rede à porta 3001-3003 (bind 0.0.0.0, docker-compose.yml:70-71). No cenário do desafio (sem exposição pública) o risco é baixo; exposto em rede compartilhada ou internet, qualquer par com um id lê dados financeiros de outro.",
+      "impact": "Vazamento de saldo, histórico completo do ledger e identificadores de jogador; a reconciliação pode ser disparada por qualquer um.",
+      "fix": "Introduzir autenticação (API key ou JWT por provedor) e verificar que a wallet/transação pertence ao provedor autenticado, via coluna provider_id em wallets ou join com wager_transactions. Retornar 404 (não 403) quando o recurso é de outro provedor. Se a decisão do escopo for manter sem auth, documentar o serviço como interno e restringir a rede (bind em loopback ou rede interna do compose).",
+      "acceptance": [
+        "Requisição sem credencial a /wallets/:id retorna 401",
+        "Credencial do provedor A em wallet do provedor B retorna 404",
+        "Teste de integração cobrindo as 5 rotas com id (wallets get/ledger/reconciliation, transactions por id e por externalId)"
+      ],
+      "issueGroup": "authn-authz"
+    },
+    {
+      "id": "A-02",
+      "category": "1",
+      "severity": "alta",
+      "title": "providerId é autodeclarado e a wallet não pertence a nenhum provedor: qualquer chamador movimenta qualquer wallet",
+      "file": "src/application/wagering/submit-wager-transaction.ts",
+      "lines": "93-94",
+      "snippet": "// Passo 4: lock da wallet ANTES de qualquer leitura de idempotência.\n    const wallet = await scope.wallets.lockForUpdate(cmd.walletId);",
+      "description": "O comando traz providerId, walletId e playerId do body (wager-command.ts:26-38). A única checagem entre wallet e dono é tx.playerId === wallet.playerId (decide-wager.ts:43); não há vínculo wallet-provedor (wallets sem provider_id) e NoopProviderIdentity.assertCanActAs (auth.guard.ts:20-22) nunca é invocado. O mesmo vale nas consultas por provedor: GET /providers/:providerId/wagering/transactions/:externalTransactionId (wagering.controller.ts:113-126) filtra por provider_id (wager-transaction.repository.ts:77-79), mas o valor é escolhido pelo próprio chamador.",
+      "exploitability": "Quem conhece walletId + playerId (ambos UUID, devolvidos por GET /wallets/:id e ledger sem auth, ver A-01) envia BET/WIN/REFUND com qualquer providerId e altera saldo da wallet. Condição: serviço alcançável pela rede; não precisa de credencial. Também permite ocupar chaves (provider_id, idempotency_key/external_transaction_id) de outro provedor e causar IDEMPOTENCY_CONFLICT ou EXTERNAL_ID_CONFLICT para o dono real.",
+      "impact": "Débito e crédito indevidos em saldos, fraude financeira e negação de serviço lógica sobre chaves de idempotência de terceiros.",
+      "fix": "Autenticar o provedor e derivar providerId da identidade (ignorar ou comparar o do body), chamando ProviderIdentityPort.assertCanActAs. Registrar provider_id em wallets na criação e rejeitar com WALLET_NOT_FOUND quando a wallet for de outro provedor. Aplicar a mesma regra no consumer SQS (identidade por fila ou atributo assinado).",
+      "acceptance": [
+        "Aposta com providerId diferente do dono da wallet é rejeitada sem alterar saldo nem ledger",
+        "providerId é derivado da identidade autenticada, não do body",
+        "Teste de integração: provedor A não consegue gravar nem ler transações usando a wallet do provedor B"
+      ],
+      "issueGroup": "authn-authz"
+    },
+    {
+      "id": "A-03",
+      "category": "extra",
+      "severity": "media",
+      "title": "Ausência total de autenticação (AuthGuard no-op) em todas as rotas, incluindo escrita",
+      "file": "src/interfaces/http/auth.guard.ts",
+      "lines": "3-9",
+      "snippet": "/** Guard no-op: autenticação fica para o desenho documentado (README §2, Design §12). */\n@Injectable()\nexport class AuthGuard implements CanActivate {\n  canActivate(): boolean {\n    return true;\n  }\n}",
+      "description": "Nenhuma rota exige identidade. POST /wallets (wallets.controller.ts:39-69) cria wallets com saldo inicial arbitrário e não tem sequer o guard aplicado; POST /wagering/transactions altera saldo. A decisão é documentada (ARCHITECTURE §14), logo é achado de contexto: a raiz de A-01 e A-02.",
+      "exploitability": "Qualquer cliente com acesso de rede cria wallets com saldo qualquer (initialBalance livre) e movimenta dinheiro. Severidade média, e não crítica, porque o escopo do desafio documenta o serviço como processador interno sem exposição pública. Passa a crítica se exposto sem camada de rede à frente (gateway, mTLS ou VPC).",
+      "impact": "Criação de saldo do nada e movimentação financeira por qualquer par de rede.",
+      "fix": "Aplicar um guard real (API key por provedor com comparação em tempo constante, ou JWT) globalmente via APP_GUARD, com lista explícita de rotas públicas (health). Se mantiver no-op por escopo, remover a falsa sensação de proteção (o decorator existe só em wagering.controller) e documentar no README que a rede é a fronteira de confiança.",
+      "acceptance": [
+        "APP_GUARD global; rotas sem credencial retornam 401, exceto /health/live e /health/ready",
+        "POST /wallets exige credencial com permissão de administração"
+      ],
+      "issueGroup": "authn-authz"
+    },
+    {
+      "id": "A-04",
+      "category": "extra",
+      "severity": "media",
+      "title": "Endpoint de reconciliação público executa agregação sobre todo o ledger com FOR SHARE (amplificação de DoS)",
+      "file": "src/application/wallet/reconcile-wallet.ts",
+      "lines": "26-33",
+      "snippet": "const wallet = await scope.wallets.lockForShare(walletId);\n      if (!wallet) return null;\n\n      const totals = await scope.ledger.totals(walletId);",
+      "description": "POST /wallets/:walletId/reconciliation (wallets.controller.ts:105-119) é público, sem rate limit, e a cada chamada faz SUM/COUNT sobre todas as linhas de wallet_ledger_entries da wallet (ledger.repository.ts:54-63) dentro de uma transação que mantém FOR SHARE na wallet. O FOR SHARE conflita com o FOR UPDATE de apostas (submit-wager-transaction.ts:94).",
+      "exploitability": "Um chamador com um walletId válido dispara o endpoint em laço contra uma wallet com ledger grande: consome CPU/IO do Postgres e bloqueia apostas concorrentes na mesma wallet até o lock_timeout de 5 s (retornando 503). Exige acesso de rede e um walletId existente (obtido por A-01).",
+      "impact": "Degradação do processamento de apostas de uma wallet e uso desproporcional do banco.",
+      "fix": "Proteger o endpoint por autenticação administrativa e aplicar rate limit; avaliar reconciliar por snapshot (REPEATABLE READ) em vez de FOR SHARE para não bloquear escrita.",
+      "acceptance": [
+        "Endpoint exige credencial administrativa",
+        "Mais de N chamadas por minuto por origem retornam 429",
+        "Teste de carga mostra que reconciliação concorrente não aumenta a latência de BET na mesma wallet acima de um limite definido"
+      ],
+      "issueGroup": "dos-limits"
+    },
+    {
+      "id": "A-05",
+      "category": "extra",
+      "severity": "media",
+      "title": "Sem rate limiting; limite de body e de lote implícitos (padrão do framework)",
+      "file": "src/main.ts",
+      "lines": "32-38",
+      "snippet": "const app = await NestFactory.create(tracingShutdown ? withTracingFlush(root, tracingShutdown) : root, { bufferLogs: true });\n  app.useLogger(app.get(Logger));\n  setupOpenApi(app);\n  app.enableShutdownHooks(undefined, { useProcessExit: true });\n  await app.listen(config.port, \"0.0.0.0\");",
+      "description": "O bootstrap não registra throttler, não define limite de body (vale o padrão de 100 kb do body-parser do Express, não declarado) nem timeouts do servidor HTTP (headersTimeout/requestTimeout padrão do Node). package.json não contém @nestjs/throttler. Cada POST /wagering/transactions abre uma transação com lock de wallet; Idempotency-Key e X-Correlation-Id só são limitados pelo teto de header do Node.",
+      "exploitability": "Cliente de rede envia rajadas de POST (válidos ou inválidos) e esgota o pool do Postgres e a CPU. O limite de 100 kb impede payload gigante, e o zod limita campos a 128 chars, o que mitiga amplificação por tamanho; a falta de limite de taxa permanece. O risco de lote é nulo na HTTP: cada request carrega uma transação (não há endpoint de lote). Condição: serviço exposto sem proxy com limite de taxa.",
+      "impact": "Esgotamento de conexões e latência elevada para provedores legítimos.",
+      "fix": "Adicionar @nestjs/throttler (por IP e, depois, por provedor), declarar explicitamente o limite de body (NestFactory.create com bodyParser opções ou app.useBodyParser('json', { limit: '16kb' })) e configurar server.requestTimeout/headersTimeout.",
+      "acceptance": [
+        "Limite de body explícito de 16 kb em main.ts, verificado por teste que envia 20 kb e recebe 413",
+        "Excesso de taxa retorna 429 com Retry-After",
+        "Timeouts do servidor HTTP definidos e documentados"
+      ],
+      "issueGroup": "dos-limits",
+      "status": "corrigido",
+      "fixedIn": "e3f86d9",
+      "note": "Limite de body de 64 kb corrigido (413 PAYLOAD_TOO_LARGE). Rate limit não implementado: documentado (ARCHITECTURE §18, README) como responsabilidade da borda. Timeouts do servidor HTTP não alterados."
+    },
+    {
+      "id": "A-06",
+      "category": "extra",
+      "severity": "baixa",
+      "title": "Sem helmet: faltam headers de segurança e X-Powered-By fica exposto; CORS não configurado",
+      "file": "src/main.ts",
+      "lines": "30-38",
+      "snippet": "const config = loadConfig();\n  const root = AppModule.register(config);\n  const app = await NestFactory.create(...);\n  app.useLogger(app.get(Logger));\n  setupOpenApi(app);",
+      "description": "main.ts não usa helmet nem app.enableCors; o Express envia X-Powered-By: Express e nenhum X-Content-Type-Options, Strict-Transport-Security ou CSP. O CORS não habilitado é seguro por padrão (sem Access-Control-Allow-Origin, o navegador bloqueia origens cruzadas), então não é achado por si só. O Swagger UI em /docs é servido sob essa mesma ausência de CSP.",
+      "exploitability": "Baixo: é API JSON consumida por servidores. Os headers ausentes só importam se um navegador renderizar respostas (Swagger UI, /docs-json) ou se o serviço for colocado atrás de um domínio compartilhado. Fingerprinting do framework é trivial.",
+      "impact": "Superfície de endurecimento reduzida; fingerprinting; sem proteção de defesa em profundidade para a UI do Swagger.",
+      "fix": "Adicionar helmet (com CSP compatível com o Swagger UI) e desabilitar x-powered-by (app.getHttpAdapter().getInstance().disable('x-powered-by')). Manter CORS desligado; se for preciso, usar lista explícita de origens.",
+      "acceptance": [
+        "Resposta de qualquer rota inclui X-Content-Type-Options: nosniff e não inclui X-Powered-By",
+        "Teste e2e verifica os headers"
+      ],
+      "issueGroup": "http-hardening",
+      "status": "corrigido",
+      "fixedIn": "e3f86d9"
+    },
+    {
+      "id": "A-07",
+      "category": "extra",
+      "severity": "baixa",
+      "title": "/metrics, /docs, /docs-json e /health/ready públicos, sem autenticação, nas mesmas portas da API",
+      "file": "src/interfaces/http/metrics.controller.ts",
+      "lines": "5-17",
+      "snippet": "@ApiTags(\"ops\")\n@Controller(\"metrics\")\nexport class MetricsController {\n  @Get()\n  async get(): Promise<string> {\n    return this.metrics.registry.metrics();\n  }\n}",
+      "description": "Métricas Prometheus, o documento OpenAPI (openapi.ts:24, /docs e /docs-json) e a readiness são servidos na porta pública da API (docker-compose.yml:70-71), sem guard. As métricas só usam labels de baixa cardinalidade (status, kind, source, result, component; prom-metrics.ts:13,20,27,65), sem identificadores de jogador ou provedor. O ready devolve o estado de dependências (health.controller.ts:63-65, mensagem 'not ready: db=... sqs=...'), pelo filtro de erro (http-error.filter.ts:56-62).",
+      "exploitability": "Qualquer cliente de rede lê volumes e taxas de erro (inteligência operacional, contadores de reconciliationMismatch), o contrato completo da API e o estado de Postgres/SQS. Sem dado pessoal ou segredo, o impacto é de reconhecimento. Condição: porta publicada.",
+      "impact": "Reconhecimento para ataques; divulgação de saúde de dependências.",
+      "fix": "Servir /metrics em porta/host interno separado (ou exigir token de scraping) e desabilitar /docs fora de ambiente de desenvolvimento via flag de config. Reduzir a mensagem do ready para 'not ready' e manter o detalhe só em log.",
+      "acceptance": [
+        "/metrics não responde na porta pública da API",
+        "/docs depende de uma flag (ex.: ENABLE_DOCS) desligada por padrão em produção",
+        "Corpo de /health/ready em erro não lista db/sqs"
+      ],
+      "issueGroup": "http-hardening",
+      "status": "parcial",
+      "fixedIn": "e3f86d9",
+      "note": "DOCS_ENABLED implementado e documentado no README. /metrics e /health/ready continuam na porta da API, e o corpo do ready ainda lista db/sqs."
+    },
+    {
+      "id": "A-08",
+      "category": "extra",
+      "severity": "baixa",
+      "title": "SET LOCAL lock_timeout monta SQL por interpolação de string",
+      "file": "src/infrastructure/persistence/mikro-unit-of-work.ts",
+      "lines": "30",
+      "snippet": "await tem.execute(`SET LOCAL lock_timeout = '${this.lockTimeout}'`);",
+      "description": "SET não aceita parâmetro ligado, então o valor é interpolado. Hoje não é explorável: lockTimeout vem do default 'const DEFAULT_LOCK_TIMEOUT = \"5s\"' (linha 14) porque persistence.module.ts:44 constrói `new MikroUnitOfWork(orm.em, undefined, metrics)`, e o construtor é público com parâmetro string livre. Se alguém ligar o valor a env ou a entrada externa, vira injeção SQL (aspas simples) executada com o papel wagering_app.",
+      "exploitability": "Não explorável no código atual: nenhum caminho de entrada alcança o valor. Latente: exige uma mudança futura que alimente o parâmetro com dado externo. O papel wagering_app só tem SELECT/INSERT/UPDATE, o que limita o dano.",
+      "impact": "Nenhum hoje; risco de regressão.",
+      "fix": "Validar o parâmetro no construtor (regex /^\\d+(ms|s|min)$/) ou receber número de milissegundos e interpolar Number.isInteger(value) validado; alternativa: `SELECT set_config('lock_timeout', ?, true)` com parâmetro ligado.",
+      "acceptance": [
+        "Construtor lança erro para valor que não casa com a regex",
+        "Teste unitário com lockTimeout \"1s'; DROP TABLE wallets;--\" falha na construção"
+      ],
+      "issueGroup": "sql-latent",
+      "status": "corrigido",
+      "fixedIn": "e3f86d9"
+    },
+    {
+      "id": "A-09",
+      "category": "extra",
+      "severity": "baixa",
+      "title": "X-Correlation-Id e providerId/externalTransactionId sem formato restrito; correlationId sem limite próprio",
+      "file": "src/interfaces/http/wagering.controller.ts",
+      "lines": "88-93",
+      "snippet": "@Headers(\"x-correlation-id\") correlationId: string | undefined,\n...\nconst result = await this.submit.execute(cmd, { correlationId: correlationId ?? randomUUID() });",
+      "description": "O header X-Correlation-Id é repassado sem validação de formato ou tamanho para o payload dos eventos de outbox (submit-wager-transaction.ts:188; record-permanent-failure.ts:104) e, portanto, ao SQS. O mesmo vale para o do POST /wallets (wallets.controller.ts:53,67). providerId e externalTransactionId aceitam qualquer string de 1-128 chars (wager-command.ts:24,28-29), inclusive controle e Unicode, e os params do GET por externalId nem têm limite (wagering.controller.ts:120-121). Logs usam pino (JSON), então não há injeção de linha de log; o risco é dado sujo em eventos consumidos por terceiros.",
+      "exploitability": "Cliente envia correlationId de até o limite de header do Node (~16 kb) ou com conteúdo arbitrário; vira valor persistido na outbox e entregue ao consumidor dos eventos. Só afeta quem confia nesse campo (por exemplo, usa como chave de log ou de cache).",
+      "impact": "Poluição de eventos e traços; amplificação pequena de armazenamento.",
+      "fix": "Validar X-Correlation-Id com regex /^[A-Za-z0-9._:-]{1,128}$/ (ou descartar e gerar UUID); aplicar o mesmo conjunto de caracteres em providerId e externalTransactionId e limitar os params do GET a 128 chars.",
+      "acceptance": [
+        "Header inválido é substituído por UUID gerado",
+        "providerId com caracteres de controle retorna 400",
+        "GET com externalTransactionId de 1000 chars retorna 400"
+      ],
+      "issueGroup": "input-validation"
+    },
+    {
+      "id": "A-10",
+      "category": "extra",
+      "severity": "informativa",
+      "title": "Mensagens de erro de HttpException do Nest e de zod são devolvidas ao cliente",
+      "file": "src/interfaces/http/http-error.filter.ts",
+      "lines": "64-67",
+      "snippet": "if (exception instanceof HttpException) {\n    const status = exception.getStatus();\n    const code = status === 400 ? \"INVALID_PAYLOAD\" : status === 404 ? \"NOT_FOUND\" : \"HTTP_ERROR\";\n    return { status, code, message: exception.message };\n  }",
+      "description": "Mensagens de validação (ex.: 'Validation failed (uuid is expected)', erros zod com caminho do campo) e de rota inexistente ('Cannot GET /x') chegam ao cliente. Isso é esperado e não contém stack, SQL nem caminho de arquivo. Todo erro não mapeado vira 500 com 'internal error' (linha 69) e o stack só vai para o log (linhas 79-86). Exceção: NotFoundError em ledger.repository.ts:66 inclui o walletId, que é entrada do próprio chamador.",
+      "exploitability": "Sem vazamento de dado interno verificado. Registrado apenas para documentar que a superfície de erro foi examinada.",
+      "impact": "Nenhum.",
+      "fix": "Nenhuma obrigatória. Opcional: padronizar a mensagem de HTTP_ERROR para texto fixo.",
+      "acceptance": [
+        "Teste e2e confirma que 500 devolve apenas {\"error\":{\"code\":\"INTERNAL\",\"message\":\"internal error\"}}"
+      ],
+      "issueGroup": "http-hardening"
+    }
+  ],
+  "strengths": [
+    {
+      "category": "extra",
+      "text": "Todo SQL de valor é parametrizado com placeholders ?; nenhum dado de requisição é concatenado em SQL. A única interpolação por dado é o SET LOCAL com constante (A-08), e a montagem de WHERE/lock em selectOne usa só literais fixos dos métodos da própria classe.",
+      "evidence": "src/infrastructure/persistence/repositories/wager-transaction.repository.ts:65-79,119-125; src/infrastructure/persistence/sql.ts:9-22"
+    },
+    {
+      "category": "extra",
+      "text": "Placeholders também no advisory lock e na query de ledger com cursor; o cursor é validado por regex e por re-encode, impedindo formas alternativas.",
+      "evidence": "src/infrastructure/persistence/pg-advisory-lock.ts:26,31; src/interfaces/http/cursor.ts:15-22; src/infrastructure/persistence/repositories/ledger.repository.ts:34-38"
+    },
+    {
+      "category": "extra",
+      "text": "O array de ids em markPublishedMany da outbox é interpolado em literal de array, mas os ids vêm do próprio banco (uuid), não de entrada externa.",
+      "evidence": "src/infrastructure/persistence/repositories/outbox.repository.ts:57"
+    },
+    {
+      "category": "extra",
+      "text": "Validação de entrada estrita: zod strictObject (rejeita campos extras), strings de 1-128, UUID por regex, Idempotency-Key de 1-255 sem espaços nas pontas, OPENING bloqueado como kind externo, dinheiro validado por Money.from (sem number).",
+      "evidence": "src/application/wagering/wager-command.ts:24-47,53-87; src/interfaces/http/wallets.controller.ts:24-28"
+    },
+    {
+      "category": "extra",
+      "text": "ParseUUIDPipe em todos os IDs de wallet e de transação; limit do ledger validado por regex /^[1-9]\\d*$/ e com teto de 200 aplicado duas vezes (controller e query), com leitura de pageSize+1.",
+      "evidence": "src/interfaces/http/wallets.controller.ts:77,92,115,122-126; src/application/wallet/wallet-queries.ts:23,47"
+    },
+    {
+      "category": "extra",
+      "text": "Filtro global de exceções devolve 500 genérico e envia stack apenas ao log, nunca o body da request. Não há stack trace nem mensagem de banco na resposta; erros de Postgres são mapeados para códigos fixos.",
+      "evidence": "src/interfaces/http/http-error.filter.ts:69,76-91; src/infrastructure/persistence/pg-error-mapper.ts:65"
+    },
+    {
+      "category": "1",
+      "text": "Isolamento por wallet no ledger e nas consultas de transação por provedor: ledger sempre filtra wallet_id, e lookups por idempotência/id externo usam o par (provider_id, chave), protegido por UNIQUE no banco. Não existem endpoints de listagem global, o que evita vazamento por busca.",
+      "evidence": "src/infrastructure/persistence/repositories/ledger.repository.ts:34-37; src/infrastructure/persistence/migrations/Migration20261031000001_initial.ts:55-56"
+    },
+    {
+      "category": "1",
+      "text": "O banco impede reatribuir transação a outro provedor: um trigger bloqueia mudança de provider_id (e demais campos imutáveis) em UPDATE.",
+      "evidence": "src/infrastructure/persistence/migrations/Migration20261031000001_initial.ts:100-104"
+    },
+    {
+      "category": "extra",
+      "text": "Privilégio mínimo no banco: o runtime usa wagering_app com SELECT/INSERT/UPDATE (sem DELETE, sem DDL); migrations rodam com outro papel.",
+      "evidence": "infra/postgres/init-roles.sql:1-19; docker-compose.yml:48-50,62"
+    },
+    {
+      "category": "extra",
+      "text": "Tamanho de payload limitado por padrão: o body-parser do Express aplica 100 kb e todos os campos de texto do POST de aposta têm teto de 128 chars; a HTTP não aceita lote.",
+      "evidence": "src/application/wagering/wager-command.ts:24-38; src/main.ts:32"
+    },
+    {
+      "category": "extra",
+      "text": "Interceptor de tracing e logs não incluem body, valores monetários nem headers; spans carregam só identificadores e desfecho.",
+      "evidence": "src/application/wagering/submit-wager-transaction.ts:43-47; src/interfaces/http/tracing.interceptor.ts:37"
+    },
+    {
+      "category": "2",
+      "text": "Nenhuma decisão de permissão depende do navegador: não há frontend com papéis, flags ou localStorage. O Swagger UI só descreve a API.",
+      "evidence": "src/interfaces/http/openapi.ts:12-25; docs/apresentacao/index.html (HTML estático)"
+    }
+  ]
+}
