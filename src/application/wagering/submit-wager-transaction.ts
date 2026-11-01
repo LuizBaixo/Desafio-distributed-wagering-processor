@@ -4,6 +4,7 @@ import type { IdGenerator } from "../ports/id-generator";
 import type { Logger } from "../ports/logger";
 import type { Metrics } from "../ports/metrics";
 import type { TransactionScope, UnitOfWork } from "../ports/unit-of-work";
+import { getTracing } from "../ports/tracing";
 import { wagerPayloadHash } from "../idempotency/payload-hash";
 import { WagerTransactionRejected } from "../../domain/events/events";
 import { InboxMessage } from "../../domain/messaging/inbox-message";
@@ -50,8 +51,22 @@ export class SubmitWagerTransaction {
   ) {}
 
   async execute(cmd: WagerCommand, ctx: SubmitContext): Promise<SubmitResult> {
-    const startedAt = performance.now();
     const source = ctx.inbox ? "sqs" : "http";
+    // Atributos: só identificadores e o desfecho. Nenhum valor monetário.
+    return getTracing().withSpan(
+      "wager.submit",
+      { "wallet.id": cmd.walletId, "provider.id": cmd.providerId, source },
+      async (span) => {
+        const result = await this.executeInner(cmd, ctx, source);
+        span.setAttribute("outcome", result.kind);
+        if ("view" in result && result.view.transactionId !== null) span.setAttribute("transaction.id", result.view.transactionId);
+        return result;
+      },
+    );
+  }
+
+  private async executeInner(cmd: WagerCommand, ctx: SubmitContext, source: "sqs" | "http"): Promise<SubmitResult> {
+    const startedAt = performance.now();
 
     let result: SubmitResult | undefined;
     for (let attempt = 1; result === undefined; attempt++) {

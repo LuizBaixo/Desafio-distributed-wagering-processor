@@ -70,6 +70,16 @@ Painéis do dashboard:
 - **Espera pelo lock de wallet p95:** `wallet_lock_wait_seconds`, o tempo do `FOR UPDATE`.
 - **Duplicatas detectadas:** taxa de `duplicates_detected_total` por `source` e `result`.
 
+### Tracing (OpenTelemetry, opcional)
+
+O profile também sobe o Jaeger (<http://localhost:16686>, `JAEGER_PORT`). O tracing do app fica desligado até `OTEL_EXPORTER_OTLP_ENDPOINT` ser definido; sem a variável, nenhum pacote do OpenTelemetry é carregado.
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile observability up -d --build --scale app=3
+```
+
+Spans manuais (sem auto-instrumentação): `http.request`, `wager.submit` (atributos `transaction.id`, `wallet.id`, `provider.id`, `outcome`, `source`), `db.transaction`, `sqs.receive`, `sqs.process` e `outbox.publish_batch`. Nenhum atributo carrega valor monetário. O `traceparent` viaja como atributo de mensagem do SQS: o consumidor continua o trace de quem enviou, e o publicador da outbox grava o seu no evento (o payload não muda).
+
 Para derrubar com os volumes: `docker compose --profile observability down -v`.
 
 ## Operação

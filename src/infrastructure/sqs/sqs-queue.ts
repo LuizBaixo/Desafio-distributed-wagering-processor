@@ -20,6 +20,7 @@ export interface SqsQueueOptions {
   visibilityTimeoutSeconds?: number;
 }
 
+const TRACEPARENT_ATTRIBUTE = "traceparent";
 const MAX_BATCH_ENTRIES = 10;
 const MAX_BODY_BYTES = 262_144;
 
@@ -48,14 +49,19 @@ export class SqsQueue implements QueuePort {
             ? { VisibilityTimeout: this.opts.visibilityTimeoutSeconds }
             : {}),
           MessageSystemAttributeNames: ["ApproximateReceiveCount"],
+          MessageAttributeNames: [TRACEPARENT_ATTRIBUTE],
         }),
       );
-      return (res.Messages ?? []).map((m) => ({
-        body: m.Body ?? "",
-        receiptHandle: m.ReceiptHandle ?? "",
-        messageId: m.MessageId ?? "",
-        receiveCount: Number(m.Attributes?.["ApproximateReceiveCount"] ?? 1),
-      }));
+      return (res.Messages ?? []).map((m) => {
+        const traceparent = m.MessageAttributes?.[TRACEPARENT_ATTRIBUTE]?.StringValue;
+        return {
+          body: m.Body ?? "",
+          receiptHandle: m.ReceiptHandle ?? "",
+          messageId: m.MessageId ?? "",
+          receiveCount: Number(m.Attributes?.["ApproximateReceiveCount"] ?? 1),
+          ...(traceparent ? { attributes: { [TRACEPARENT_ATTRIBUTE]: traceparent } } : {}),
+        };
+      });
     } catch (e) {
       throw wrap(e);
     }
@@ -117,6 +123,13 @@ export class SqsQueue implements QueuePort {
             MessageBody: entry.body,
             MessageGroupId: entry.groupId,
             MessageDeduplicationId: entry.dedupId,
+            ...(entry.attributes && Object.keys(entry.attributes).length > 0
+              ? {
+                  MessageAttributes: Object.fromEntries(
+                    Object.entries(entry.attributes).map(([k, v]) => [k, { DataType: "String", StringValue: v }]),
+                  ),
+                }
+              : {}),
           })),
         }),
       )

@@ -64,6 +64,9 @@ services:
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+      # Tracing opcional. Vazio: desligado. Com o profile observability: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: wagering-processor
     ports:
       - "${APP_PORTS:-3001-3003}:3000"
     # SIGTERM -> espera até 40s -> SIGKILL. Ver ARCHITECTURE.md §12 (Shutdown).
@@ -93,6 +96,15 @@ services:
     depends_on:
       app:
         condition: service_started
+
+  # Traces (OTLP HTTP em 4318, UI em 16686). Ligue o tracing do app com OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318.
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    profiles: [observability]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "${JAEGER_PORT:-16686}:16686"
 
   grafana:
     image: grafana/grafana:12.1.0

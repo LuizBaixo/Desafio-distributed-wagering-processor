@@ -6,6 +6,11 @@ import { loadConfig } from "./config/config";
 import { setupOpenApi } from "./interfaces/http/openapi";
 
 async function bootstrap(): Promise<void> {
+  // Tracing opcional: sem o endpoint, nenhum pacote do OpenTelemetry é carregado.
+  if (process.env["OTEL_EXPORTER_OTLP_ENDPOINT"]) {
+    const { initTracing } = await import("./infrastructure/observability/tracing");
+    await initTracing();
+  }
   const config = loadConfig();
   const app = await NestFactory.create(AppModule.register(config), { bufferLogs: true });
   app.useLogger(app.get(Logger));

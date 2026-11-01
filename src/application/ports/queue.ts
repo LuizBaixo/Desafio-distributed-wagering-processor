@@ -5,6 +5,8 @@ export interface QueueMessage {
   receiveCount: number;
   /** Id da mensagem atribuído pelo SQS (não confundir com o `messageId` do envelope). */
   messageId: string;
+  /** Atributos de mensagem (String) que o adaptador pediu no receive; hoje só `traceparent`. */
+  attributes?: Record<string, string>;
 }
 
 export interface SendOptions {
@@ -19,6 +21,7 @@ export interface BatchEntry {
   body: string;
   groupId: string;
   dedupId: string;
+  attributes?: Record<string, string>;
 }
 
 export interface BatchResult {

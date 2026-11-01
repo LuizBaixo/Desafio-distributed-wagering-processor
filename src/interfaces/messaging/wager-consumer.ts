@@ -11,6 +11,7 @@ import { LOGGER } from "../../application/ports/logger";
 import type { Metrics } from "../../application/ports/metrics";
 import { QUEUE_PORT, type QueueMessage, type QueuePort } from "../../application/ports/queue";
 import { METRICS } from "../../application/ports/tokens";
+import { getTracing } from "../../application/ports/tracing";
 import { wagerPayloadHash } from "../../application/idempotency/payload-hash";
 import { RecordPermanentFailure } from "../../application/wagering/record-permanent-failure";
 import { SubmitWagerTransaction } from "../../application/wagering/submit-wager-transaction";
@@ -163,7 +164,11 @@ export class WagerConsumer implements OnApplicationBootstrap, BeforeApplicationS
       }
       let messages: QueueMessage[];
       try {
-        messages = await this.queue.receive(this.config.queues.wager, Math.min(10, free), waitSeconds);
+        messages = await getTracing().withSpan("sqs.receive", { "messaging.queue": this.config.queues.wager }, async (span) => {
+          const received = await this.queue.receive(this.config.queues.wager, Math.min(10, free), waitSeconds);
+          span.setAttribute("messaging.batch.size", received.length);
+          return received;
+        });
       } catch (e) {
         this.logFailure(e, "receive failed");
         if (this.running) await sleep(1000);
@@ -186,7 +191,13 @@ export class WagerConsumer implements OnApplicationBootstrap, BeforeApplicationS
   /** Nunca lança: qualquer falha vira log, e a mensagem reaparece pela visibilidade. */
   private async handle(m: QueueMessage): Promise<void> {
     try {
-      await runWithContext({ correlationId: m.messageId, messageId: m.messageId }, () => this.process(m));
+      const traceparent = m.attributes?.["traceparent"];
+      await getTracing().withSpan(
+        "sqs.process",
+        { "messaging.message_id": m.messageId, "messaging.receive_count": m.receiveCount },
+        () => runWithContext({ correlationId: m.messageId, messageId: m.messageId }, () => this.process(m)),
+        traceparent !== undefined ? { parentTraceparent: traceparent } : {},
+      );
     } catch (e) {
       this.logFailure(e, "unexpected failure handling message");
     }

@@ -3,6 +3,7 @@ import type { Clock } from "../../application/ports/clock";
 import type { Logger } from "../../application/ports/logger";
 import type { Metrics } from "../../application/ports/metrics";
 import type { BatchEntry, BatchResult, QueuePort } from "../../application/ports/queue";
+import { getTracing } from "../../application/ports/tracing";
 import type { UnitOfWork } from "../../application/ports/unit-of-work";
 import type { OutboxMessage } from "../../domain/messaging/outbox-message";
 
@@ -84,12 +85,24 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
    * Envia um lote (no máximo 10) e fecha o resultado em uma única transação: `markPublishedMany` nos
    * enviados e `release` nos que falharam. Só o que o SQS confirmou é marcado como publicado.
    */
-  private async publishChunk(chunk: OutboxMessage[], now: Date): Promise<{ published: number; failed: number }> {
+  private publishChunk(chunk: OutboxMessage[], now: Date): Promise<{ published: number; failed: number }> {
+    return getTracing().withSpan("outbox.publish_batch", { "messaging.batch.size": chunk.length }, async (span) => {
+      const r = await this.publishChunkInner(chunk, now);
+      span.setAttribute("outbox.published", r.published);
+      span.setAttribute("outbox.failed", r.failed);
+      return r;
+    });
+  }
+
+  private async publishChunkInner(chunk: OutboxMessage[], now: Date): Promise<{ published: number; failed: number }> {
+    // O `traceparent` vai como atributo da mensagem; o payload do evento fica intocado.
+    const traceparent = getTracing().currentTraceparent();
     const entries: BatchEntry[] = chunk.map((msg) => ({
       id: msg.id,
       body: JSON.stringify(msg.payload),
       groupId: msg.aggregateId,
       dedupId: msg.id,
+      ...(traceparent !== undefined ? { attributes: { traceparent } } : {}),
     }));
 
     let result: BatchResult;

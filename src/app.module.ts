@@ -1,5 +1,6 @@
 import { Module, type DynamicModule } from "@nestjs/common";
-import { APP_FILTER } from "@nestjs/core";
+import { APP_FILTER, APP_INTERCEPTOR } from "@nestjs/core";
+import { TracingInterceptor } from "./interfaces/http/tracing.interceptor";
 import { LoggerModule } from "nestjs-pino";
 import { APP_CONFIG, type AppConfig } from "./config/config";
 import { ConfigModule } from "./config/config.module";
@@ -85,6 +86,7 @@ export class AppModule {
         { provide: LOGGER, useFactory: () => createLogger() },
         { provide: ERROR_LOGGER, useFactory: () => createLogger() },
         { provide: APP_FILTER, useClass: HttpErrorFilter },
+        { provide: APP_INTERCEPTOR, useClass: TracingInterceptor },
       ],
     };
   }

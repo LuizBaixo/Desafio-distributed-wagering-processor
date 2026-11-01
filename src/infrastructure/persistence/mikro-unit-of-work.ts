@@ -1,5 +1,6 @@
 import type { EntityManager } from "@mikro-orm/postgresql";
 import type { Metrics } from "../../application/ports/metrics";
+import { getTracing } from "../../application/ports/tracing";
 import type { TransactionScope, UnitOfWork } from "../../application/ports/unit-of-work";
 import "./money.type";
 import { mapPgError } from "./pg-error-mapper";
@@ -19,7 +20,11 @@ export class MikroUnitOfWork implements UnitOfWork {
     private readonly metrics?: Metrics,
   ) {}
 
-  async run<T>(work: (scope: TransactionScope) => Promise<T>): Promise<T> {
+  run<T>(work: (scope: TransactionScope) => Promise<T>): Promise<T> {
+    return getTracing().withSpan("db.transaction", {}, () => this.runTransaction(work));
+  }
+
+  private async runTransaction<T>(work: (scope: TransactionScope) => Promise<T>): Promise<T> {
     try {
       return await this.em.fork().transactional(async (tem) => {
         await tem.execute(`SET LOCAL lock_timeout = '${this.lockTimeout}'`);
