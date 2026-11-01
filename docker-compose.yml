@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: wagering
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - ./infra/postgres/init-roles.sql:/docker-entrypoint-initdb.d/01-init-roles.sql:ro
     healthcheck:
@@ -20,7 +20,7 @@ services:
   ministack:
     image: ministackorg/ministack:1.5.35
     ports:
-      - "4566:4566"
+      - "${SQS_PORT:-4566}:4566"
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4566/_ministack/health', timeout=2)"]
       interval: 2s
@@ -53,7 +53,7 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # Escalar com: docker compose up -d --build --scale app=3 (portas 3001, 3002 e 3003 no host).
+  # Escalar com: docker compose up -d --build --scale app=3 (portas do host em APP_PORTS, padrão 3001-3003).
   app:
     build: .
     environment:
@@ -65,7 +65,7 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
     ports:
-      - "3001-3003:3000"
+      - "${APP_PORTS:-3001-3003}:3000"
     # SIGTERM -> espera até 40s -> SIGKILL. Ver ARCHITECTURE.md §12 (Shutdown).
     stop_grace_period: 40s
     depends_on:

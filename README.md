@@ -34,6 +34,16 @@ curl localhost:3002/health/live
 curl localhost:3003/health/live
 ```
 
+Portas do host (padrão entre parênteses), configuráveis por variável de ambiente ou no `.env`:
+
+- `POSTGRES_PORT` (`5432`)
+- `SQS_PORT` (`4566`)
+- `APP_PORTS` (`3001-3003`): uma porta por réplica; ao mudar, informe um intervalo do mesmo tamanho do `--scale`
+
+Exemplo: `POSTGRES_PORT=55432 APP_PORTS=3011-3013 docker compose up -d --build --scale app=3`.
+
+Essas portas podem colidir com um Postgres ou LocalStack que já esteja rodando na máquina (erro `port is already allocated`). Nesse caso, escolha outra porta. Se for rodar a aplicação fora do compose, aponte `DATABASE_URL` e `SQS_ENDPOINT` para a porta escolhida.
+
 Para parar: `docker compose down -v`.
 
 ## Scripts
