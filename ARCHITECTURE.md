@@ -274,4 +274,4 @@ Limitação conhecida: o MiniStack é uma emulação. Comportamentos finos de SQ
 - `SIGTERM` com processo real não é testado no Windows: o Windows não entrega `SIGTERM` (o `kill` vira `TerminateProcess`), e esse teste usa `skipIf(win32)`. O mesmo caminho é coberto dentro do processo, via `app.close()`, com uma mensagem lenta (`TEST_SLOW_MS`) que termina `PROCESSED`, e com o prazo vencido (`SHUTDOWN_GRACE_MS`), em que a mensagem volta visível. Em Linux o teste com processo roda.
 - Erro permanente inesperado no consumidor vai para a DLQ, mas não grava a transação como `FAILED`.
 - MiniStack é emulação: diferenças com AWS podem existir.
-- Testes de integração e concorrência isolam o banco por execução com `TEST_DB_NAME` (um banco por agente ou por pipeline) e as portas dos processos com `TEST_PORT_BASE`. Duas execuções no mesmo banco se atrapalham, porque cada teste faz `TRUNCATE`.
+- Testes de integração e concorrência isolam o banco por execução com `TEST_DB_NAME` (um banco por execução ou pipeline) e as portas dos processos com `TEST_PORT_BASE`. Duas execuções no mesmo banco se atrapalham, porque cada teste faz `TRUNCATE`.

@@ -4,8 +4,6 @@ Serviço financeiro que processa transações de aposta (`BET`, `WIN`, `LOSS`, `
 
 Decisões de arquitetura, trade-offs e limitações estão em [ARCHITECTURE.md](ARCHITECTURE.md).
 
-**Decisões e trade-offs:** ver [ARCHITECTURE.md](ARCHITECTURE.md).
-
 ## Pré-requisitos
 
 - [Bun](https://bun.sh) 1.x (testado com 1.4.4)
@@ -61,7 +59,7 @@ Para parar: `docker compose down -v`.
 | `bun run infra:test:up` | Sobe a infra de teste (`docker-compose.test.yml`): Postgres em `5433`, MiniStack em `4567` |
 | `bun run infra:test:down` | Derruba a infra de teste e remove os volumes |
 
-## Infra de teste e isolamento entre agentes
+## Infra de teste e isolamento por execução/pipeline
 
 Antes de qualquer teste de integração ou concorrência:
 
@@ -71,14 +69,14 @@ bun run infra:test:up
 
 Variáveis que os testes aceitam:
 
-- `TEST_DB_NAME` (padrão `wagering`): nome do banco de teste. Cada agente usa o seu para não derrubar os dados dos outros:
+- `TEST_DB_NAME` (padrão `wagering`): nome do banco de teste. Cada execução ou pipeline usa o seu para não derrubar os dados dos outros:
   ```bash
-  TEST_DB_NAME=wagering_faisca bun run test:integration
+  TEST_DB_NAME=wagering_ci bun run test:integration
   ```
   Se o banco não existir, o helper `ensureTestDatabase()` cria com dono `wagering_owner`.
-- `TEST_PORT_BASE` (padrão `4101`): porta base dos processos criados pelos testes de concorrência. Use outro valor para rodar dois agentes ao mesmo tempo:
+- `TEST_PORT_BASE` (padrão `4101`): porta base dos processos criados pelos testes de concorrência. Use outro valor para rodar duas execuções ao mesmo tempo (com outro `TEST_DB_NAME` também):
   ```bash
-  TEST_PORT_BASE=4201 TEST_DB_NAME=wagering_forja bun run test:concurrency
+  TEST_PORT_BASE=4201 TEST_DB_NAME=wagering_ci_2 bun run test:concurrency
   ```
 
 Com a infra de teste no ar, `bun run test` roda tudo. Para encerrar: `bun run infra:test:down`.
