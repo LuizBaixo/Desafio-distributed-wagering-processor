@@ -6,11 +6,14 @@
  *   bun run security:report            lê findings-a.json e findings-b.json
  *   bun run security:report -- --sample  lê fixtures/sample-a.json e fixtures/sample-b.json
  *
- * PDF: Microsoft Edge headless (--print-to-pdf). Caminho do Edge: variável EDGE_PATH.
+ * PDF: Microsoft Edge headless via CDP (Page.printToPDF com cabeçalho/rodapé).
+ * Caminho do Edge: variável EDGE_PATH. Pasta de saída: SECURITY_REPORT_OUT (padrão: esta pasta).
  */
 import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SAMPLE = process.argv.includes("--sample");
@@ -24,6 +27,8 @@ const REPORT_TITLE = `${REPORT_NAME} — Distributed Wagering Processor`;
 
 type Severity = "critica" | "alta" | "media" | "baixa" | "informativa";
 type Category = "1" | "2" | "3" | "4" | "5" | "extra";
+/** Ausente no JSON = "aberto". */
+type Status = "corrigido" | "documentado" | "parcial" | "aberto";
 
 interface Finding {
   id: string;
@@ -39,6 +44,9 @@ interface Finding {
   fix: string;
   acceptance: string[];
   issueGroup?: string;
+  status?: Status;
+  fixedIn?: string;
+  note?: string;
 }
 
 interface Strength {
@@ -93,6 +101,20 @@ const CAT_LABEL: Record<Category, string> = {
   extra: "Testes extras",
 };
 
+const STATUS_ORDER: Status[] = ["corrigido", "parcial", "documentado", "aberto"];
+const STATUS_LABEL: Record<Status, string> = {
+  corrigido: "Corrigido",
+  parcial: "Parcial",
+  documentado: "Documentado",
+  aberto: "Aberto",
+};
+const STATUS_COLOR: Record<Status, string> = {
+  corrigido: "#059669",
+  parcial: "#D97706",
+  documentado: "#2563EB",
+  aberto: "#B91C1C",
+};
+
 // ---------- utilitários ----------
 
 /** Escapa qualquer texto antes de entrar no HTML. Todo dado do JSON passa por aqui. */
@@ -136,6 +158,9 @@ function validate(data: AuditFile, file: string): AuditFile {
     }
     if (!Array.isArray(f.acceptance)) f.acceptance = [];
     f.fix ??= "";
+    if (f.status !== undefined && !(STATUS_ORDER as string[]).includes(f.status)) {
+      fail(file, `achado ${f.id} com status inválido: ${JSON.stringify(f.status)}`);
+    }
   }
   for (const s of data.strengths) {
     if (!isCategory(s.category)) fail(file, `ponto forte com categoria inválida: ${s.category}`);
@@ -154,6 +179,27 @@ async function loadAudit(letter: "a" | "b"): Promise<AuditFile> {
 
 const sevChip = (s: Severity) =>
   `<span class="chip" style="background:${COLOR[s]}">${SEV_LABEL[s]}</span>`;
+
+const statusOf = (f: Finding): Status => f.status ?? "aberto";
+
+/** Chip de status + hash do commit (fixedIn), quando houver. */
+function statusChip(f: Finding): string {
+  const s = statusOf(f);
+  return `<span class="chip" style="background:${STATUS_COLOR[s]}">${STATUS_LABEL[s]}</span>` +
+    (f.fixedIn ? `<br><span class="hash">${esc(f.fixedIn)}</span>` : "");
+}
+
+function statusCounts(list: Finding[]): Record<Status, number> {
+  const out = { corrigido: 0, documentado: 0, parcial: 0, aberto: 0 };
+  for (const f of list) out[statusOf(f)]++;
+  return out;
+}
+
+/** Só achados abertos ou parciais geram issue. */
+function isOpenOrPartial(f: Finding): boolean {
+  const s = statusOf(f);
+  return s === "aberto" || s === "parcial";
+}
 
 /** Achado acionável: vira issue. Informativa só vira issue se tiver correção e critérios de aceite. */
 function isActionable(f: Finding): boolean {
@@ -239,6 +285,30 @@ function barSvg(rows: { label: string; counts: Record<Severity, number> }[]): st
     legend + body + `</svg>`;
 }
 
+/** Barra empilhada com achados por status (um só segmento por status). */
+function statusBarSvg(counts: Record<Status, number>): string {
+  const W = 640;
+  const total = STATUS_ORDER.reduce((n, s) => n + counts[s], 0);
+  if (total === 0) return "<p>Nenhum achado.</p>";
+  let x = 0;
+  const bar = STATUS_ORDER.filter((s) => counts[s] > 0).map((s) => {
+    const w = (counts[s] / total) * W;
+    const rect = `<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="24" fill="${STATUS_COLOR[s]}"/>`;
+    x += w;
+    return rect;
+  }).join("");
+  const legend = STATUS_ORDER.map((s, i) =>
+    `<rect x="${i * 160}" y="40" width="12" height="12" rx="2" fill="${STATUS_COLOR[s]}"/>` +
+    `<text x="${i * 160 + 17}" y="51" font-size="12" fill="#111827">${STATUS_LABEL[s]}: ${counts[s]}</text>`,
+  ).join("");
+  return `<svg viewBox="0 0 ${W} 60" width="100%" role="img" aria-label="Achados por status">${bar}${legend}</svg>`;
+}
+
+function statusSummaryLine(list: Finding[]): string {
+  const c = statusCounts(list);
+  return `${c.corrigido} corrigidos, ${c.parcial} parciais, ${c.documentado} documentados, ${c.aberto} abertos`;
+}
+
 // ---------- seções do relatório ----------
 
 function renderCover(a: AuditFile, b: AuditFile, date: string): string {
@@ -259,6 +329,7 @@ function renderCover(a: AuditFile, b: AuditFile, date: string): string {
   <p class="kicker">Auditoria de segurança</p>
   <h1>${esc(REPORT_TITLE)}</h1>
   <p class="date">Data: ${esc(date)}</p>
+  <p class="date">Situação após correções em ${esc(date)}</p>
   ${SAMPLE ? '<p class="banner">AMOSTRA: dados de exemplo gerados por --sample. Não é o relatório final.</p>' : ""}
   <h2>Escopo</h2>
   <p>Auditoria da aplicação em <code>app/</code>, com dois auditores independentes (A e B) cujos achados foram consolidados neste relatório.</p>
@@ -292,6 +363,11 @@ function renderSummary(all: Finding[], strengths: Strength[], a: AuditFile, b: A
     <figcaption>Achados por categoria, empilhados por severidade</figcaption>
     ${barSvg(byCat)}
   </figure>
+  <figure>
+    <figcaption>Achados por status</figcaption>
+    ${statusBarSvg(statusCounts(all))}
+    <p class="small"><strong>${statusSummaryLine(all)}</strong></p>
+  </figure>
   <p class="small">Auditor A: ${a.findings.length} achado(s). Auditor B: ${b.findings.length} achado(s).</p>
 </section>`;
 }
@@ -302,7 +378,7 @@ function renderStrengthsAndWeaknesses(all: Finding[], strengths: Strength[]): st
     ? "<p>Nenhum achado crítico ou alto.</p>"
     : weak.map((f) =>
       `<article class="card" style="border-left-color:${COLOR[f.severity]}">
-        <p>${sevChip(f.severity)} <strong>${esc(f.id)}</strong> · ${esc(f.title)}</p>
+        <p>${sevChip(f.severity)} ${statusChip(f)} <strong>${esc(f.id)}</strong> · ${esc(f.title)}</p>
         <p class="small"><code>${esc(f.file)}:${esc(f.lines)}</code></p>
         <p>${esc(f.description)}</p>
         <p class="small"><strong>Explorabilidade:</strong> ${esc(f.exploitability)}</p>
@@ -326,11 +402,14 @@ function renderFindingTables(all: Finding[]): string {
     if (list.length === 0) return `<h3>Categoria ${esc(c)} — ${esc(CAT_LABEL[c])}</h3><p class="small">Nenhum achado nesta categoria.</p>`;
     const rows = list.map((f) =>
       `<tr><td>${sevChip(f.severity)}</td>` +
+      `<td>${statusChip(f)}</td>` +
       `<td><code>${esc(f.file)}:${esc(f.lines)}</code></td>` +
-      `<td><strong>${esc(f.id)} — ${esc(f.title)}</strong><br>${esc(f.description)}</td></tr>`).join("");
+      `<td><strong>${esc(f.id)} — ${esc(f.title)}</strong><br>${esc(f.description)}` +
+      (f.note ? `<br><span class="small"><strong>Situação:</strong> ${esc(f.note)}</span>` : "") +
+      `</td></tr>`).join("");
     return `<h3>Categoria ${esc(c)} — ${esc(CAT_LABEL[c])}</h3>
     <table>
-      <thead><tr><th style="width:14%">Severidade</th><th style="width:26%">Arquivo:linha</th><th>Descrição</th></tr></thead>
+      <thead><tr><th style="width:12%">Severidade</th><th style="width:14%">Status</th><th style="width:22%">Arquivo:linha</th><th>Descrição</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   }).join("");
@@ -341,7 +420,7 @@ function renderRecommendations(all: Finding[]): string {
   const sorted = sortFindings(all);
   const group = (p: "P1" | "P2" | "P3") => sorted.filter((f) => priorityOf(f.severity) === p);
   const item = (f: Finding) =>
-    `<li>${sevChip(f.severity)} <strong>${esc(f.id)}</strong> ${esc(f.title)}` +
+    `<li>${sevChip(f.severity)} ${statusChip(f)} <strong>${esc(f.id)}</strong> ${esc(f.title)}` +
     (isActionable(f) ? `<br><span class="small">${esc(f.fix) || "—"}</span>` : ` <span class="small">(sem ação; não vira issue)</span>`) +
     `</li>`;
   const block = (p: "P1" | "P2" | "P3", heading: string) => {
@@ -367,6 +446,7 @@ function issueMarkdown(findings: Finding[], n: number): string {
 
 **Categoria:** ${f.category} — ${CAT_LABEL[f.category]}
 **Severidade:** ${SEV_LABEL[f.severity]}
+**Status:** ${STATUS_LABEL[statusOf(f)]}${f.note ? ` — ${f.note}` : ""}
 
 **Descrição:** ${f.description}
 
@@ -398,7 +478,7 @@ ${acceptance}`;
 
 function renderIssues(all: Finding[]): string {
   const groups = new Map<string, Finding[]>();
-  for (const f of sortFindings(all.filter(isActionable))) {
+  for (const f of sortFindings(all.filter((x) => isOpenOrPartial(x) && isActionable(x)))) {
     const key = f.issueGroup ? `group:${f.issueGroup}` : `id:${f.id}`;
     groups.set(key, [...(groups.get(key) ?? []), f]);
   }
@@ -408,23 +488,35 @@ function renderIssues(all: Finding[]): string {
     const md = issueMarkdown(findings, n);
     return `<pre class="issue">--- ISSUE ${n} ---\n${esc(md)}\n--- FIM ISSUE ${n} ---</pre>`;
   });
+  const issuesHtml = !all.some(isOpenOrPartial)
+    ? "<p><strong>Nenhum achado aberto ou parcial: nenhuma issue a abrir.</strong></p>"
+    : blocks.length === 0 ? "<p>Nenhuma issue acionável.</p>" : blocks.join("\n");
+  const fixed = sortFindings(all.filter((f) => statusOf(f) === "corrigido"));
+  const documented = sortFindings(all.filter((f) => statusOf(f) === "documentado"));
+  const fixedHtml = fixed.length === 0
+    ? '<p class="small">Nenhum achado corrigido.</p>'
+    : `<ul class="fixed">${fixed.map((f) =>
+      `<li><span class="hash">${esc(f.fixedIn ?? "sem hash")}</span> <strong>${esc(f.id)}</strong> ${esc(f.title)}</li>`).join("")}</ul>`;
+  const documentedHtml = documented.length === 0
+    ? ""
+    : `<h3>Documentados (sem issue)</h3><p class="small">${documented.map((f) =>
+      `<strong>${esc(f.id)}</strong> ${esc(f.title)}`).join("<br>")}</p>`;
   return `<section class="sec">
   <h2>ISSUES PARA O GITHUB</h2>
-  <p class="small">Cada bloco abaixo é uma issue completa em Markdown. Achados informativos sem ação não viram issue. Achados com o mesmo <code>issueGroup</code> ficam numa única issue.</p>
-  ${blocks.length === 0 ? "<p>Nenhuma issue acionável.</p>" : blocks.join("\n")}
+  <p class="small">Cada bloco abaixo é uma issue completa em Markdown, somente para achados <strong>aberto</strong> ou <strong>parcial</strong>. Achados informativos sem ação não viram issue. Achados com o mesmo <code>issueGroup</code> ficam numa única issue; membros já corrigidos ficam fora dela.</p>
+  ${issuesHtml}
+  <h3>Já corrigidos</h3>
+  ${fixedHtml}
+  ${documentedHtml}
 </section>`;
 }
 
 // ---------- página ----------
 
 const CSS = `
-@page {
-  size: A4;
-  margin: 2cm;
-  @top-left { content: "${REPORT_NAME}"; font-family: "Segoe UI", Arial, sans-serif; font-size: 8.5pt; color: #6B7280; }
-  @bottom-right { content: "Página " counter(page) " de " counter(pages); font-family: "Segoe UI", Arial, sans-serif; font-size: 8.5pt; color: #6B7280; }
-}
 * { box-sizing: border-box; }
+.hash { font-family: Consolas, "Courier New", monospace; font-size: 7.5pt; color: #374151; white-space: nowrap; }
+ul.fixed { margin: 4pt 0 10pt; padding-left: 18px; } ul.fixed li { margin-bottom: 3pt; }
 body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #111827; margin: 0; }
 h1 { font-size: 22pt; line-height: 1.2; margin: 6pt 0 14pt; }
 h2 { font-size: 15pt; border-bottom: 1px solid #E5E7EB; padding-bottom: 4px; margin: 0 0 10pt; break-after: avoid; }
@@ -479,25 +571,107 @@ ${renderIssues(all)}
 `;
 }
 
+// Cabeçalho e rodapé: Page.printToPDF com displayHeaderFooter (Chromium gera em cada página).
+// Medidas em polegadas: A4 = 8.27 x 11.69; margem lateral 2 cm ≈ 0.79 in.
+const MARGIN_X = 0.79;
+const PAGE_PDF = {
+  paperWidth: 8.27,
+  paperHeight: 11.69,
+  marginTop: 0.9,
+  marginBottom: 0.9,
+  marginLeft: MARGIN_X,
+  marginRight: MARGIN_X,
+};
+const HF_STYLE = `font-family:'Segoe UI',Arial,sans-serif;font-size:8.5pt;color:#6B7280;width:100%;padding:0 ${MARGIN_X}in;`;
+const HEADER_TEMPLATE = `<div style="${HF_STYLE}">${esc(REPORT_NAME)}</div>`;
+const FOOTER_TEMPLATE =
+  `<div style="${HF_STYLE}text-align:right;">Página <span class="pageNumber"></span> de <span class="totalPages"></span></div>`;
+
+const CDP_PORT = 9300 + Math.floor(Math.random() * 600);
+
+async function waitForPageSocket(port: number): Promise<string> {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/json/list`);
+      const targets = (await res.json()) as { type: string; webSocketDebuggerUrl?: string }[];
+      const page = targets.find((t) => t.type === "page" && t.webSocketDebuggerUrl);
+      if (page?.webSocketDebuggerUrl) return page.webSocketDebuggerUrl;
+    } catch {
+      // Edge ainda não abriu a porta de depuração
+    }
+    await Bun.sleep(200);
+  }
+  throw new Error("Edge não abriu a porta de depuração em 20 s");
+}
+
 async function printPdf(htmlPath: string, pdfPath: string): Promise<void> {
-  const proc = Bun.spawn(
+  const userData = await mkdtemp(join(tmpdir(), "security-report-edge-"));
+  const edge = Bun.spawn(
     [
       EDGE,
       "--headless=new",
       "--disable-gpu",
-      "--no-pdf-header-footer",
-      `--print-to-pdf=${pdfPath}`,
-      htmlPath,
+      "--no-first-run",
+      "--no-default-browser-check",
+      `--user-data-dir=${userData}`,
+      `--remote-debugging-port=${CDP_PORT}`,
+      "about:blank",
     ],
     { stdout: "ignore", stderr: "pipe" },
   );
-  const timer = setTimeout(() => proc.kill(), 120_000);
-  const code = await proc.exited;
-  clearTimeout(timer);
-  if (code !== 0 || !existsSync(pdfPath)) {
-    const err = await new Response(proc.stderr).text();
-    throw new Error(`Edge falhou (código ${code}). ${err.slice(0, 500)}`);
+  let socket: WebSocket | undefined;
+  try {
+    socket = new WebSocket(await waitForPageSocket(CDP_PORT));
+    const ws = socket;
+    await new Promise<void>((resolve, reject) => {
+      ws.onopen = () => resolve();
+      ws.onerror = () => reject(new Error("falha ao conectar no Edge via CDP"));
+    });
+    const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+    let nextId = 0;
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(String(ev.data));
+      const p = msg.id !== undefined ? pending.get(msg.id) : undefined;
+      if (!p) return;
+      pending.delete(msg.id);
+      if (msg.error) p.reject(new Error(`${msg.error.message}`));
+      else p.resolve(msg.result);
+    };
+    const send = (method: string, params: Record<string, unknown> = {}) =>
+      new Promise<any>((resolve, reject) => {
+        const id = ++nextId;
+        pending.set(id, { resolve, reject });
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+
+    await send("Page.enable");
+    await send("Page.navigate", { url: pathToFileURL(htmlPath).href });
+    const deadline = Date.now() + 60_000;
+    while ((await send("Runtime.evaluate", { expression: "document.readyState", returnByValue: true })).result.value !== "complete") {
+      if (Date.now() > deadline) throw new Error("página não carregou em 60 s");
+      await Bun.sleep(100);
+    }
+    const { data } = await send("Page.printToPDF", {
+      ...PAGE_PDF,
+      printBackground: true,
+      preferCSSPageSize: false,
+      displayHeaderFooter: true,
+      headerTemplate: HEADER_TEMPLATE,
+      footerTemplate: FOOTER_TEMPLATE,
+    });
+    await Bun.write(pdfPath, Buffer.from(data, "base64"));
+  } catch (e) {
+    edge.kill();
+    const err = await new Response(edge.stderr).text();
+    throw new Error(`Falha ao gerar PDF pelo Edge: ${(e as Error).message}. ${err.slice(0, 500)}`);
+  } finally {
+    socket?.close();
+    edge.kill();
+    await edge.exited;
+    await rm(userData, { recursive: true, force: true }).catch(() => {});
   }
+  if (!existsSync(pdfPath)) throw new Error(`PDF não foi criado: ${pdfPath}`);
 }
 
 async function main(): Promise<void> {
@@ -510,8 +684,9 @@ async function main(): Promise<void> {
     timeZone: "America/Sao_Paulo",
   });
 
-  const htmlPath = join(HERE, "report.html");
-  const pdfPath = join(HERE, "relatorio-auditoria-seguranca.pdf");
+  const outDir = process.env.SECURITY_REPORT_OUT ?? HERE;
+  const htmlPath = join(outDir, "report.html");
+  const pdfPath = join(outDir, "relatorio-auditoria-seguranca.pdf");
   await Bun.write(htmlPath, renderHtml(a, b, date));
   await printPdf(htmlPath, pdfPath);
 
