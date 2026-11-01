@@ -177,6 +177,100 @@ aws --endpoint-url http://localhost:4566 sqs receive-message \n  --queue-url htt
 
 Credenciais do MiniStack: qualquer valor (`AWS_ACCESS_KEY_ID=test`, `AWS_SECRET_ACCESS_KEY=test`).
 
+## Como demonstrar
+
+Pré-condição: stack limpa (`docker compose down -v` e depois `docker compose up -d --build --scale app=3`). O banco guarda o `playerId` e as `Idempotency-Key`; para repetir a demonstração, reinicie a stack.
+
+Rode os blocos na ordem, no mesmo shell, porque eles usam variáveis definidas antes.
+
+```bash
+B=localhost:3001
+PLAYER=0192f28f-5dc0-7d58-bdb2-814ad6a0f4a3
+```
+
+**a) Criar wallet de 100.00 BRL**
+
+```bash
+WALLET=$(curl -s -X POST $B/wallets -H 'content-type: application/json' \
+  -d "{\"playerId\":\"$PLAYER\",\"initialBalance\":{\"amount\":\"100.00\",\"currency\":\"BRL\"}}" \
+  | sed -E 's/.*"id":"([^"]+)".*/\1/')
+echo $WALLET
+```
+
+**b) Duas BETs de 80.00 em paralelo:** uma responde `200 PROCESSED` e a outra `422 INSUFFICIENT_FUNDS`. Qual das duas recebe `200` depende da ordem de chegada.
+
+```bash
+curl -s -w ' HTTP %{http_code}\n' -X POST $B/wagering/transactions \
+  -H 'content-type: application/json' -H 'Idempotency-Key: provider-a:bet-demo-a' \
+  -d "{\"providerId\":\"provider-a\",\"externalTransactionId\":\"bet-demo-a\",\"playerId\":\"$PLAYER\",\"walletId\":\"$WALLET\",\"roundId\":\"round-987\",\"gameId\":\"fortune-chimp\",\"kind\":\"BET\",\"money\":{\"amount\":\"80.00\",\"currency\":\"BRL\"}}" &
+curl -s -w ' HTTP %{http_code}\n' -X POST $B/wagering/transactions \
+  -H 'content-type: application/json' -H 'Idempotency-Key: provider-a:bet-demo-b' \
+  -d "{\"providerId\":\"provider-a\",\"externalTransactionId\":\"bet-demo-b\",\"playerId\":\"$PLAYER\",\"walletId\":\"$WALLET\",\"roundId\":\"round-987\",\"gameId\":\"fortune-chimp\",\"kind\":\"BET\",\"money\":{\"amount\":\"80.00\",\"currency\":\"BRL\"}}" &
+wait
+```
+
+**c) Replay:** repete `bet-demo-a`. Devolve o mesmo resultado de antes, com `"idempotentReplay": true`.
+
+```bash
+curl -s -w ' HTTP %{http_code}\n' -X POST $B/wagering/transactions \
+  -H 'content-type: application/json' -H 'Idempotency-Key: provider-a:bet-demo-a' \
+  -d "{\"providerId\":\"provider-a\",\"externalTransactionId\":\"bet-demo-a\",\"playerId\":\"$PLAYER\",\"walletId\":\"$WALLET\",\"roundId\":\"round-987\",\"gameId\":\"fortune-chimp\",\"kind\":\"BET\",\"money\":{\"amount\":\"80.00\",\"currency\":\"BRL\"}}"
+```
+
+**d) Mesma `Idempotency-Key`, outro valor:** `409 IDEMPOTENCY_CONFLICT`.
+
+```bash
+curl -s -w ' HTTP %{http_code}\n' -X POST $B/wagering/transactions \
+  -H 'content-type: application/json' -H 'Idempotency-Key: provider-a:bet-demo-a' \
+  -d "{\"providerId\":\"provider-a\",\"externalTransactionId\":\"bet-demo-a\",\"playerId\":\"$PLAYER\",\"walletId\":\"$WALLET\",\"roundId\":\"round-987\",\"gameId\":\"fortune-chimp\",\"kind\":\"BET\",\"money\":{\"amount\":\"10.00\",\"currency\":\"BRL\"}}"
+```
+
+**e) REFUND antes da BET:** o REFUND responde `202 PENDING_REFERENCE`. Depois da BET de referência (`bet-demo-c`, 20.00, que cabe no saldo de 20.00 restante), o REFUND é resolvido pelo worker de pendentes, em até ~1 s. O `sleep 2` antes do GET espera isso; o GET deve mostrar `"status":"PROCESSED"`.
+
+```bash
+curl -s -w ' HTTP %{http_code}\n' -X POST $B/wagering/transactions \
+  -H 'content-type: application/json' -H 'Idempotency-Key: provider-a:refund-demo-1' \
+  -d "{\"providerId\":\"provider-a\",\"externalTransactionId\":\"refund-demo-1\",\"referenceExternalTransactionId\":\"bet-demo-c\",\"playerId\":\"$PLAYER\",\"walletId\":\"$WALLET\",\"roundId\":\"round-987\",\"gameId\":\"fortune-chimp\",\"kind\":\"REFUND\",\"money\":{\"amount\":\"20.00\",\"currency\":\"BRL\"}}"
+
+curl -s -w ' HTTP %{http_code}\n' -X POST $B/wagering/transactions \
+  -H 'content-type: application/json' -H 'Idempotency-Key: provider-a:bet-demo-c' \
+  -d "{\"providerId\":\"provider-a\",\"externalTransactionId\":\"bet-demo-c\",\"playerId\":\"$PLAYER\",\"walletId\":\"$WALLET\",\"roundId\":\"round-987\",\"gameId\":\"fortune-chimp\",\"kind\":\"BET\",\"money\":{\"amount\":\"20.00\",\"currency\":\"BRL\"}}"
+
+sleep 2
+curl -s -w ' HTTP %{http_code}\n' $B/providers/provider-a/wagering/transactions/refund-demo-1
+```
+
+**f) Reconciliação:** `consistent: true`.
+
+```bash
+curl -s -X POST $B/wallets/$WALLET/reconciliation
+```
+
+**g) Métrica de transações:**
+
+```bash
+curl -s $B/metrics | grep wager_transactions_total
+```
+
+## Códigos de falha: reenviar ou não?
+
+Tabela para o provedor decidir o que fazer com cada `failureCode` (taxonomia completa em [ARCHITECTURE.md §9](ARCHITECTURE.md)).
+
+| Código | Reenviar? | Ação do provedor |
+|---|---|---|
+| `INVALID_PAYLOAD` | Não | Corrige o payload. Inclui JSON malformado e campos ausentes ou com tipo errado. |
+| `INVALID_MONEY` | Não | Corrige o valor. Inclui `0.00`, que é rejeitado para todos os `kind`. |
+| `KIND_NOT_ALLOWED` | Não | Corrige o `kind`. `OPENING` é interno. |
+| `IDEMPOTENCY_CONFLICT` | Não, com a mesma key | Mesma `Idempotency-Key` com outro payload. Para tentar de novo, use outra key. |
+| `EXTERNAL_ID_CONFLICT` | Não, com a mesma key | `externalTransactionId` já usado com outra key. Para tentar de novo, mande um `externalTransactionId` novo. |
+| `WALLET_NOT_FOUND`, `WALLET_PLAYER_MISMATCH`, `CURRENCY_MISMATCH` | Não | Corrige os dados da wallet ou do jogador. |
+| `INSUFFICIENT_FUNDS` | Não | Desiste da aposta. |
+| `REVERSAL_INSUFFICIENT_FUNDS` | Não | Escala para a operação. Não reenviar automaticamente. |
+| `REFERENCE_NOT_FOUND` | Não | Investiga a BET de referência. Só chega aqui depois do limite de tentativas. |
+| `REFERENCE_MISMATCH`, `REFERENCE_INVALID_KIND`, `REFERENCE_NOT_PROCESSED`, `REFERENCE_ALREADY_REVERSED`, `AMOUNT_MISMATCH` | Não | Corrige a referência ou o valor, ou desiste. |
+| `INFRA_UNAVAILABLE` | Sim, com a mesma key | Falha transitória (HTTP `503` com `Retry-After`). Reenviar é seguro. |
+| `INFRA_PERMANENT` | Não | Vira `FAILED`. Investiga. |
+
 ## Configuração
 
 Variáveis lidas por `src/config/config.ts` (valores padrão entre parênteses):
