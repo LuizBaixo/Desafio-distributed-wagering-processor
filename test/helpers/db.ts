@@ -49,6 +49,11 @@ export async function resetDb(): Promise<void> {
   await ownerPool().query(`TRUNCATE ${TABLES.join(", ")} RESTART IDENTITY CASCADE`);
 }
 
+/** ORM conectado como `wagering_app` (papel do runtime), para exercitar a UnitOfWork de verdade. */
+export async function createAppOrm(): Promise<MikroORM> {
+  return MikroORM.init(buildMikroOrmConfig(TEST_APP_DATABASE_URL));
+}
+
 export async function closePools(): Promise<void> {
   await owner?.end();
   await app?.end();
