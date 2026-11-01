@@ -333,6 +333,8 @@ describe("correções: re-checagem no limite e isolamento de erro por item", () 
     };
     const logs: Array<{ obj: Record<string, unknown>; msg?: string }> = [];
     const logger: Logger = {
+      info() {},
+      warn() {},
       error(obj, msg) {
         logs.push({ obj: obj as Record<string, unknown>, ...(msg !== undefined ? { msg } : {}) });
       },

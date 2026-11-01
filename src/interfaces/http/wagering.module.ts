@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 import { CLOCK, ID_GENERATOR, METRICS, UNIT_OF_WORK } from "../../application/ports/tokens";
+import { LOGGER, type Logger } from "../../application/ports/logger";
+import { createLogger } from "../../infrastructure/observability/logger";
 import type { Clock } from "../../application/ports/clock";
 import type { IdGenerator } from "../../application/ports/id-generator";
 import type { Metrics } from "../../application/ports/metrics";
@@ -24,10 +26,17 @@ import { WageringController } from "./wagering.controller";
     },
     {
       provide: SubmitWagerTransaction,
-      inject: [UNIT_OF_WORK, WagerEngine, ID_GENERATOR, CLOCK, METRICS],
-      useFactory: (uow: UnitOfWork, engine: WagerEngine, ids: IdGenerator, clock: Clock, metrics: Metrics) =>
-        new SubmitWagerTransaction(uow, engine, ids, clock, metrics),
+      inject: [UNIT_OF_WORK, WagerEngine, ID_GENERATOR, CLOCK, METRICS, LOGGER],
+      useFactory: (
+        uow: UnitOfWork,
+        engine: WagerEngine,
+        ids: IdGenerator,
+        clock: Clock,
+        metrics: Metrics,
+        logger: Logger,
+      ) => new SubmitWagerTransaction(uow, engine, ids, clock, metrics, logger),
     },
+    { provide: LOGGER, useFactory: () => createLogger() },
     {
       provide: WagerQueries,
       inject: [UNIT_OF_WORK],

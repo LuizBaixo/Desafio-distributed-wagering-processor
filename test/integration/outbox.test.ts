@@ -15,7 +15,7 @@ import { startTestApp, type TestApp } from "../helpers/http";
 import { EVENTS_QUEUE, purgeAll, receiveAll } from "../helpers/sqs";
 
 const PLAYER = "0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1";
-const silent: Logger = { error() {} };
+const silent: Logger = { info() {}, warn() {}, error() {} };
 
 let app: TestApp;
 let container: INestApplication;

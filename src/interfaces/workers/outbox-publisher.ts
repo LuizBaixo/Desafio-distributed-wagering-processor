@@ -55,6 +55,7 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
     );
 
     let published = 0;
+    let failed = 0;
     for (const msg of batch) {
       if (shouldStop()) break;
 
@@ -71,6 +72,7 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
         } catch (releaseErr) {
           this.logger.error({ outboxId: msg.id, errorName: errorName(releaseErr) }, "outbox release failed");
         }
+        failed++;
         this.metrics.retry("outbox");
         this.logger.error({ outboxId: msg.id, errorName: errorName(err) }, "outbox publish failed");
         continue;
@@ -83,6 +85,10 @@ export class OutboxPublisher implements OnApplicationBootstrap, BeforeApplicatio
         // Enviado mas não marcado: o lease expira e a mensagem é republicada (at-least-once).
         this.logger.error({ outboxId: msg.id, errorName: errorName(err) }, "outbox mark failed");
       }
+    }
+
+    if (batch.length > 0) {
+      this.logger.info({ claimed: batch.length, published, failed }, "outbox batch published");
     }
 
     const lag = await this.uow.run((scope) => scope.outbox.oldestPendingAgeSeconds(this.clock.now()));

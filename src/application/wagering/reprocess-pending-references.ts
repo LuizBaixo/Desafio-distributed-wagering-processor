@@ -7,6 +7,7 @@ import { WagerTransactionStatus } from "../../domain/wagering/enums";
 import { FailureCode } from "../../domain/wagering/failure-code";
 import type { Logger } from "../ports/logger";
 import type { Metrics } from "../ports/metrics";
+import type { WagerTransaction } from "../../domain/wagering/wager-transaction";
 import { WagerEngine } from "./wager-engine";
 
 export interface ReprocessOptions {
@@ -60,13 +61,21 @@ export class ReprocessPendingReferences {
 
   /** Um item, em uma transação. Retorna false se pulou (wallet ausente ou status já mudou). */
   async processOne(id: string, walletId: string): Promise<boolean> {
+    const resolved = await this.resolve(id, walletId);
+    if (resolved === null) return false;
+    // Depois do commit. Sem valores monetários.
+    this.logger.info(resolved, "pending reference outcome");
+    return true;
+  }
+
+  private async resolve(id: string, walletId: string): Promise<Record<string, unknown> | null> {
     return this.uow.run(async (scope) => {
       // 1. Wallet primeiro; 2. transação. Mesma ordem do passo 10 do Design §8: sem deadlock.
       const wallet = await scope.wallets.lockForUpdate(walletId);
-      if (!wallet) return false;
+      if (!wallet) return null;
       const tx = await scope.transactions.lockById(id);
       // 3. Confirma o estado depois do lock: outro worker ou o caso síncrono pode já ter resolvido.
-      if (!tx || tx.status !== WagerTransactionStatus.PendingReference) return false;
+      if (!tx || tx.status !== WagerTransactionStatus.PendingReference) return null;
 
       const now = this.clock.now();
       const seed = { correlationId: this.ids.next(), causationId: tx.id };
@@ -99,12 +108,26 @@ export class ReprocessPendingReferences {
           ),
         );
         await scope.transactions.markDependentsDue(tx.providerId, tx.externalTransactionId, now);
-        return true;
+        return this.outcomeFields(tx, seed.correlationId);
       }
 
       // 5. Reexecuta a partir do passo 7 da seção 8 (o motor decide: aplica, rejeita ou mantém pendente).
       await this.engine.resolveAndApply(scope, wallet, tx, seed);
-      return true;
+      return this.outcomeFields(tx, seed.correlationId);
     });
+  }
+
+  private outcomeFields(tx: WagerTransaction, correlationId: string): Record<string, unknown> {
+    return {
+      transactionId: tx.id,
+      status: tx.status,
+      failureCode: tx.failureCode ?? null,
+      kind: tx.kind,
+      source: "pending",
+      idempotentReplay: false,
+      correlationId,
+      walletId: tx.walletId,
+      providerId: tx.providerId,
+    };
   }
 }

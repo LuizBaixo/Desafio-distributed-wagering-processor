@@ -1,6 +1,7 @@
 import { isLockConflict } from "../errors";
 import type { Clock } from "../ports/clock";
 import type { IdGenerator } from "../ports/id-generator";
+import type { Logger } from "../ports/logger";
 import type { Metrics } from "../ports/metrics";
 import type { TransactionScope, UnitOfWork } from "../ports/unit-of-work";
 import { wagerPayloadHash } from "../idempotency/payload-hash";
@@ -44,6 +45,7 @@ export class SubmitWagerTransaction {
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
     private readonly metrics: Metrics,
+    private readonly logger: Logger,
   ) {}
 
   async execute(cmd: WagerCommand, ctx: SubmitContext): Promise<SubmitResult> {
@@ -65,6 +67,7 @@ export class SubmitWagerTransaction {
     }
 
     this.record(result, cmd, source);
+    this.logOutcome(result, cmd, ctx, source);
     this.metrics.observeProcessing((performance.now() - startedAt) / 1000, source);
     return result;
   }
@@ -166,6 +169,43 @@ export class SubmitWagerTransaction {
         return { kind: "rejected", view };
       default:
         return { kind: "pending", view };
+    }
+  }
+
+  /** Uma linha info por resultado, depois do commit. Nunca loga valores monetários nem o payload. */
+  private logOutcome(result: SubmitResult, cmd: WagerCommand, ctx: SubmitContext, source: "http" | "sqs"): void {
+    const base = {
+      kind: cmd.kind,
+      source,
+      correlationId: ctx.correlationId,
+      ...(ctx.inbox ? { messageId: ctx.inbox.messageId } : {}),
+      walletId: cmd.walletId,
+      providerId: cmd.providerId,
+    };
+    switch (result.kind) {
+      case "duplicateMessage":
+        this.logger.info(
+          { ...base, transactionId: null, status: "DUPLICATE_MESSAGE", failureCode: null, idempotentReplay: false },
+          "wager outcome",
+        );
+        return;
+      case "conflict":
+        this.logger.info(
+          { ...base, transactionId: null, status: "CONFLICT", failureCode: result.code, idempotentReplay: false },
+          "wager outcome",
+        );
+        return;
+      default:
+        this.logger.info(
+          {
+            ...base,
+            transactionId: result.view.transactionId,
+            status: result.view.status,
+            failureCode: result.view.failureCode,
+            idempotentReplay: result.view.idempotentReplay,
+          },
+          "wager outcome",
+        );
     }
   }
 
