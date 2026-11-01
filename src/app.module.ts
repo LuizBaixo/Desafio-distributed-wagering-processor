@@ -21,6 +21,7 @@ import { WalletsController } from "./interfaces/http/wallets.controller";
 import { ERROR_LOGGER, HttpErrorFilter } from "./interfaces/http/http-error.filter";
 import { WageringModule } from "./interfaces/http/wagering.module";
 import { MessagingModule } from "./interfaces/messaging/messaging.module";
+import { OutboxModule } from "./interfaces/workers/outbox.module";
 import { WagerEngine } from "./application/wagering/wager-engine";
 import { ReprocessPendingReferences } from "./application/wagering/reprocess-pending-references";
 import { PendingReferenceWorker } from "./interfaces/workers/pending-reference.worker";
@@ -38,6 +39,7 @@ export class AppModule {
         PersistenceModule,
         WageringModule,
         MessagingModule,
+        OutboxModule,
       ],
       controllers: [HealthController, MetricsController, WalletsController],
       providers: [
