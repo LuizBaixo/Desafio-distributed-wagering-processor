@@ -1,0 +1,84 @@
+{
+  "auditor": "B",
+  "stack": {
+    "language": "TypeScript (Bun)",
+    "framework": "NestJS 11",
+    "orm": "MikroORM 6.6.17 (PostgreSQL)",
+    "auth": "Nenhuma (AuthGuard no-op, ARCHITECTURE §14)",
+    "frontend": "Nenhum (API JSON)",
+    "deploy": ["Docker", "docker-compose"]
+  },
+  "methodology": {
+    "4": "[EXEMPLO] Busca de padrões de segredo (chaves, tokens, senhas) no histórico git e nos arquivos versionados.",
+    "5": "[EXEMPLO] Não se aplica diretamente: a API responde JSON. Verificado se algum endpoint devolve HTML ou texto refletido.",
+    "extra": "[EXEMPLO] bun audit (dependências) e imagem Docker sem tag fixa."
+  },
+  "coverage": [
+    ".env.example",
+    "Dockerfile",
+    "docker-compose.yml",
+    "git log --all (padrões de segredo)"
+  ],
+  "findings": [
+    {
+      "id": "B-01",
+      "category": "4",
+      "severity": "alta",
+      "title": "[EXEMPLO] Credencial de API versionada em arquivo de exemplo",
+      "file": ".env.example",
+      "lines": "3",
+      "snippet": "PROVIDER_API_KEY=sk_live_exemplo_0000",
+      "description": "Um valor com formato de chave real está no arquivo versionado.",
+      "exploitability": "Explorável por quem tenha acesso ao repositório ou ao histórico git, se a chave for real e ainda válida.",
+      "impact": "Uso indevido da conta do provedor externo.",
+      "fix": "Substituir por placeholder e revogar a chave caso tenha sido real.",
+      "acceptance": [
+        "[ ] .env.example contém apenas placeholders",
+        "[ ] Chave revogada no provedor"
+      ],
+      "issueGroup": "segredos"
+    },
+    {
+      "id": "B-02",
+      "category": "extra",
+      "severity": "informativa",
+      "title": "[EXEMPLO] Imagem base sem tag fixa",
+      "file": "Dockerfile",
+      "lines": "1",
+      "snippet": "FROM oven/bun",
+      "description": "A imagem base não tem versão fixa, o que muda o build ao longo do tempo.",
+      "exploitability": "Não explorável por si só; afeta reprodutibilidade e pode trazer mudança inesperada.",
+      "impact": "Build não reprodutível.",
+      "fix": "Fixar a tag, por exemplo oven/bun:1.2.",
+      "acceptance": [
+        "[ ] FROM usa tag fixa"
+      ]
+    },
+    {
+      "id": "B-03",
+      "category": "4",
+      "severity": "informativa",
+      "title": "[EXEMPLO] Chave de teste em arquivo de teste",
+      "file": "test/fixtures/keys.ts",
+      "lines": "2",
+      "snippet": "const KEY = \"test_key_0001\";",
+      "description": "Valor de teste sem efeito fora do ambiente de teste.",
+      "exploitability": "Sem exploração: o valor não é credencial válida.",
+      "impact": "Nenhum.",
+      "fix": "",
+      "acceptance": []
+    }
+  ],
+  "strengths": [
+    {
+      "category": "4",
+      "text": "[EXEMPLO] Segredos da aplicação lidos somente de variáveis de ambiente.",
+      "evidence": "src/config.ts:4"
+    },
+    {
+      "category": "5",
+      "text": "[EXEMPLO] Respostas em JSON, sem renderização de HTML a partir de entrada do usuário.",
+      "evidence": "src/orders/orders.controller.ts:22"
+    }
+  ]
+}

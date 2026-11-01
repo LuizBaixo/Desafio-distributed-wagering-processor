@@ -1,0 +1,91 @@
+{
+  "auditor": "A",
+  "stack": {
+    "language": "TypeScript (Bun)",
+    "framework": "NestJS 11",
+    "orm": "MikroORM 6.6.17 (PostgreSQL)",
+    "auth": "Nenhuma (AuthGuard no-op, ARCHITECTURE §14)",
+    "frontend": "Nenhum (API JSON)",
+    "deploy": ["Docker", "docker-compose"]
+  },
+  "methodology": {
+    "1": "[EXEMPLO] Banco PostgreSQL: verificado o mapeamento de portas no docker-compose e as credenciais padrão no .env.example.",
+    "2": "[EXEMPLO] Não se aplica: a API não possui front-end nem controle de permissão no navegador.",
+    "3": "[EXEMPLO] Handlers com :id na URL checados quanto a filtro por dono do recurso.",
+    "4": "Não é função deste auditor (categoria 4 é do auditor B).",
+    "5": "Não é função deste auditor (categoria 5 é do auditor B).",
+    "extra": "[EXEMPLO] Headers HTTP, validação de entrada com zod e limites de tamanho de corpo."
+  },
+  "coverage": [
+    "docker-compose.yml",
+    "src/main.ts",
+    "src/orders/orders.controller.ts",
+    "src/orders/orders.service.ts"
+  ],
+  "findings": [
+    {
+      "id": "A-01",
+      "category": "1",
+      "severity": "critica",
+      "title": "[EXEMPLO] Porta do PostgreSQL publicada no host com senha padrão",
+      "file": "docker-compose.yml",
+      "lines": "12-18",
+      "snippet": "ports:\n  - \"5432:5432\"\nenvironment:\n  POSTGRES_PASSWORD: postgres",
+      "description": "O serviço de banco publica 5432 em todas as interfaces e usa senha padrão conhecida.",
+      "exploitability": "Explorável se a máquina host for alcançável pela rede (ex.: VPS com porta aberta). Não exige autenticação prévia além da senha padrão.",
+      "impact": "Leitura e alteração de apostas e saldos diretamente no banco.",
+      "fix": "Remover o mapeamento de porta em produção, ou ligar em 127.0.0.1; ler a senha de variável de ambiente sem valor padrão.",
+      "acceptance": [
+        "[ ] Porta 5432 não aparece como publicada em docker-compose.yml de produção",
+        "[ ] docker compose config falha se POSTGRES_PASSWORD não estiver definida"
+      ]
+    },
+    {
+      "id": "A-02",
+      "category": "3",
+      "severity": "media",
+      "title": "[EXEMPLO] Consulta de pedido por id sem filtro de dono",
+      "file": "src/orders/orders.service.ts",
+      "lines": "40-46",
+      "snippet": "return this.em.findOneOrFail(Order, { id });",
+      "description": "O serviço busca o pedido só pelo id, sem comparar com o usuário dono do recurso.",
+      "exploitability": "Explorável por qualquer cliente que conheça ou enumere ids sequenciais, desde que a autenticação exista (hoje não existe, ver ARCHITECTURE §14).",
+      "impact": "Leitura de pedidos de outros clientes.",
+      "fix": "Incluir o dono na condição da consulta: findOneOrFail(Order, { id, ownerId }).",
+      "acceptance": [
+        "[ ] Consulta de pedido de outro dono retorna 404",
+        "[ ] Teste de integração cobre o caso IDOR"
+      ],
+      "issueGroup": "autorizacao-pedidos"
+    },
+    {
+      "id": "A-03",
+      "category": "extra",
+      "severity": "baixa",
+      "title": "[EXEMPLO] Cabeçalho X-Powered-By expõe o framework",
+      "file": "src/main.ts",
+      "lines": "5-9",
+      "snippet": "const app = await NestFactory.create(AppModule);\napp.listen(3000);",
+      "description": "A resposta inclui X-Powered-By: Express por padrão.",
+      "exploitability": "Explorável apenas como reconhecimento; não é vulnerabilidade isolada.",
+      "impact": "Facilita a identificação da stack por atacantes.",
+      "fix": "Desabilitar o cabeçalho com app.getHttpAdapter().getInstance().disable('x-powered-by').",
+      "acceptance": [
+        "[ ] Resposta HTTP não contém X-Powered-By"
+      ],
+      "issueGroup": "headers-http"
+    }
+  ],
+  "strengths": [
+    {
+      "category": "1",
+      "text": "[EXEMPLO] Consultas usam o ORM com parâmetros vinculados, sem concatenação de SQL.",
+      "evidence": "src/orders/orders.service.ts:40"
+    },
+    {
+      "category": "extra",
+      "text": "[EXEMPLO] Entradas validadas com schema zod antes da regra de negócio.",
+      "evidence": "src/orders/orders.controller.ts:18"
+    }
+  ]
+}
