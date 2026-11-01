@@ -191,7 +191,7 @@ Quando a referência ainda não existe, a transação grava `PENDING_REFERENCE` 
 **Consumidor** (`WagerConsumer`):
 - Long polling (`CONSUMER_WAIT_SECONDS=10`), até `CONSUMER_CONCURRENCY=5` mensagens em paralelo por instância.
 - `ReceiveMessage` pede `ApproximateReceiveCount`.
-- Reutiliza o **mesmo caso de uso** do HTTP (`SubmitWagerTransaction`). A inbox (`INSERT ... ON CONFLICT (consumer_name, message_id) DO NOTHING`) entra na mesma transação SQL. A inbox deduplica a entrega; a `idempotencyKey` deduplica a operação.
+- Reutiliza o **mesmo caso de uso** do HTTP (`SubmitWagerTransaction`). A inbox (`INSERT ... ON CONFLICT (consumer_name, message_id) DO NOTHING`) entra na mesma transação SQL. A inbox deduplica a entrega; a `idempotencyKey` deduplica a operação. Se a mensagem não traz `data.idempotencyKey`, o padrão é `"{providerId}:{externalTransactionId}"`, o default recomendado no desafio. Um `messageId` repetido com payload diferente continua sendo tratado como duplicata (ack), mas é logado em `warn` e contado em `duplicates_detected_total{source="inbox",result="conflict"}`, porque indica bug no produtor.
 
 **Classificação de erros:**
 
@@ -249,8 +249,8 @@ Pontos em que o README deixou margem. Cada um tem teste.
 
 ## 16. Observabilidade
 
-- **Logs:** pino em JSON. Contexto via `AsyncLocalStorage` (`correlationId`, `messageId`, `transactionId`, `walletId`, `providerId`). Redaction de `*.money`, `*.amount`, `*.balance`, `req.body` e `req.headers.authorization`. Erros de 500 são logados com nome e stack, nunca com o body.
-- **Métricas** (prom-client, `GET /metrics`): `wager_transactions_total{status,kind}`, `duplicates_detected_total{source,result}`, `retries_total{component}`, `dlq_messages_total`, `lock_conflicts_total`, `outbox_lag_seconds`, `processing_duration_seconds`, `reconciliation_mismatches_total`.
+- **Logs:** pino em JSON. Contexto via `AsyncLocalStorage` (`correlationId`, `messageId`, `transactionId`, `walletId`, `providerId`). Redaction de `*.money`, `*.amount`, `*.balance`, `req.body` e `req.headers.authorization`. Erros de 500 são logados com nome e stack, nunca com o body. Depois de cada commit sai uma linha `info` por resultado, com `transactionId`, `status`, `failureCode`, `kind`, `source` e `idempotentReplay`, sem valores monetários. O worker de pendentes loga cada resolução, e o publicador da outbox loga uma linha por lote não vazio (`claimed`, `published`, `failed`).
+- **Métricas** (prom-client, `GET /metrics`): `wager_transactions_total{status,kind}`, `duplicates_detected_total{source,result}`, `retries_total{component}`, `dlq_messages_total`, `lock_conflicts_total` (incrementada em `55P03` lock timeout, `40P01` deadlock, `40001` serialization failure e conflito de versão), `outbox_lag_seconds`, `processing_duration_seconds`, `reconciliation_mismatches_total`.
   - `duplicates_detected_total` tem o label `result` além de `source`. O Design §16 lista só `source`.
 - **Health:** `GET /health/live` responde só se o processo vive. `GET /health/ready` faz `SELECT 1` e `QueuePort.ping()` (`GetQueueAttributes` na fila principal); se qualquer um falhar, responde `503 INFRA_UNAVAILABLE`.
 
@@ -273,7 +273,8 @@ Limitação conhecida: o MiniStack é uma emulação. Comportamentos finos de SQ
 - Sem teste de carga ainda (`bun run test:load` não existe).
 - Autenticação é um ponto de extensão, não uma implementação.
 - Cadeias de pendentes: se a referência existe mas também está `PENDING_REFERENCE`, o dependente continua pendente. A cadeia sempre termina, porque a raiz esgota o limite e é rejeitada com `REFERENCE_NOT_FOUND`, e o `markDependentsDue` no `reject` acorda os dependentes. Eles então terminam com `REFERENCE_NOT_PROCESSED`. O tempo máximo de uma cadeia é o tempo da raiz mais um ciclo do worker por nível.
-- `SIGTERM` com processo real não é testado no Windows: o Windows não entrega `SIGTERM` (o `kill` vira `TerminateProcess`), e esse teste usa `skipIf(win32)`. O mesmo caminho é coberto dentro do processo, via `app.close()`, com uma mensagem lenta (`TEST_SLOW_MS`) que termina `PROCESSED`, e com o prazo vencido (`SHUTDOWN_GRACE_MS`), em que a mensagem volta visível. Em Linux o teste com processo roda.
+- O teste de `SIGTERM` com processo real roda em Linux e macOS. No Windows ele é pulado (`skipIf(win32)`), porque o Windows não entrega `SIGTERM` (o `kill` vira `TerminateProcess`). Lá o mesmo caminho é coberto dentro do processo, via `app.close()`. A suíte completa foi verificada nos dois sistemas.
+- O processo sai com código 0 depois de um shutdown limpo (`enableShutdownHooks(..., { useProcessExit: true })`). Sem essa opção, o Nest reenvia o sinal ao próprio processo depois dos hooks, e o código de saída fica 143, como se o shutdown tivesse sido abortado.
 - Erro permanente inesperado no consumidor vai para a DLQ, mas não grava a transação como `FAILED`.
 - MiniStack é emulação: diferenças com AWS podem existir.
-- Testes de integração e concorrência isolam o banco por execução com `TEST_DB_NAME` (um banco por execução ou pipeline) e as portas dos processos com `TEST_PORT_BASE`. Duas execuções no mesmo banco se atrapalham, porque cada teste faz `TRUNCATE`.
+- Testes de integração e concorrência isolam o banco por execução com `TEST_DB_NAME` (um banco por execução ou pipeline) e as portas dos processos com `TEST_PORT_BASE`. Em CI ou dentro de um container, `TEST_DB_HOST`, `TEST_SQS_ENDPOINT` e `TEST_DOCKER_HOST` apontam os testes para a infraestrutura certa. Duas execuções no mesmo banco se atrapalham, porque cada teste faz `TRUNCATE`.

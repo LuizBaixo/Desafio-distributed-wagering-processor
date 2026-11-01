@@ -74,6 +74,7 @@ Variáveis que os testes aceitam:
   TEST_DB_NAME=wagering_ci bun run test:integration
   ```
   Se o banco não existir, o helper `ensureTestDatabase()` cria com dono `wagering_owner`.
+- `TEST_DB_HOST` (padrão `localhost:5433`), `TEST_SQS_ENDPOINT` (padrão `http://localhost:4567`) e `TEST_DOCKER_HOST` (padrão `localhost`): onde os testes encontram a infraestrutura. Mude só em CI ou dentro de container, por exemplo `TEST_DB_HOST=host.docker.internal:5433`. O teste `db-outage` sobe e para um Postgres próprio com o CLI do `docker`, na porta `55432`.
 - `TEST_PORT_BASE` (padrão `4101`): porta base dos processos criados pelos testes de concorrência. Use outro valor para rodar duas execuções ao mesmo tempo (com outro `TEST_DB_NAME` também):
   ```bash
   TEST_PORT_BASE=4201 TEST_DB_NAME=wagering_ci_2 bun run test:concurrency
