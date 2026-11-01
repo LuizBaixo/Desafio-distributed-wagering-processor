@@ -1,0 +1,296 @@
+{
+  "auditor": "B",
+  "stack": {
+    "language": "TypeScript estrito sobre Bun 1.4.4",
+    "framework": "NestJS 11 (platform-express)",
+    "orm": "MikroORM 6.6.17 com SQL explícito, PostgreSQL 17.6",
+    "auth": "inexistente por decisão documentada (AuthGuard no-op, ARCHITECTURE §14)",
+    "frontend": "apresentação estática docs/apresentacao/index.html (JS puro), Swagger UI em /docs, dashboards Grafana provisionados",
+    "deploy": [
+      "docker-compose.yml",
+      "docker-compose.test.yml",
+      "Dockerfile oven/bun:1.4.4-alpine",
+      "GitHub Actions ci.yml",
+      "perfil observability: Prometheus, Jaeger, Grafana"
+    ]
+  },
+  "methodology": {
+    "1": "Fora do escopo do Auditor B (categoria do Auditor A).",
+    "2": "Fora do escopo do Auditor B (categoria do Auditor A).",
+    "3": "Fora do escopo do Auditor B (categoria do Auditor A).",
+    "4": "Busca por regex (postgres://, password, secret, token, api key, AKIA, PRIVATE KEY, admin, owner/app) em todo o repositório rastreado, exceto node_modules e bun.lock: src, scripts, test, infra, compose, Dockerfile, .env.example, .github, docs, README, ARCHITECTURE. Leitura integral de config.ts, mikro-orm.config.ts, compose, init-roles.sql, init-sqs.sh, Dockerfile, .dockerignore e .gitignore. Histórico: git log -p --all (89 commits) filtrado por AKIA, BEGIN PRIVATE KEY, password/secret/token/api_key, ghp_, xox, sk-; git log --name-only por arquivos .env/.pem/.key. Resultado: nenhum segredo real; só credenciais padrão de desenvolvimento. O único arquivo .env* no histórico é .env.example.",
+    "5": "Frontend: busca por innerHTML, outerHTML, insertAdjacentHTML, document.write, eval, new Function, setTimeout com string, srcdoc, javascript:, onclick=, href/src dinâmico em index.html. A tooltip do slide 12 usa textContent (linha 1131), logo não interpreta HTML. O único uso de location é location.hash casado por regex ^#slide-(\\d+)$ (linha 999). Os 3 links são estáticos e relativos. Swagger: openapi.ts só define DTOs estáticos e o setup do SwaggerModule; a UI é o pacote do Nest, sem template próprio. Dashboards Grafana: wagering.json só tem expr PromQL e legendFormat fixos, sem links externos. Backend: nenhum motor de template ou HTML na resposta (todas as respostas são JSON ou text/plain); mensagens de erro do zod ecoam nomes de chaves (ver B-10). Não existe lib de sanitização (helmet, DOMPurify, xss, escape) em package.json nem em src. Como a API só emite JSON e não há HTML dinâmico, não há XSS refletido ou armazenado aplicável hoje.",
+    "extra": "Supply chain: bun audit (v1.4.4) executado, 3 vulnerabilidades (1 alta, 2 moderadas), todas transitivas. Verificado se multer é alcançado: nenhum FileInterceptor/UploadedFile em src. Imagens Docker: todas com tag de versão fixa, nenhuma com latest, nenhuma com digest sha256. Actions do GitHub: ambas fixadas por tag móvel (@v4, @v2), não por SHA; runner ubuntu-latest. Dockerfile sem USER. Portas publicadas no compose. Não rodei testes nem alterei infra compartilhada."
+  },
+  "coverage": [
+    ".env.example",
+    ".gitignore",
+    ".dockerignore",
+    "Dockerfile",
+    "docker-compose.yml",
+    "docker-compose.test.yml",
+    "infra/postgres/init-roles.sql",
+    "infra/ministack/init-sqs.sh",
+    "infra/prometheus/prometheus.yml",
+    "infra/grafana/provisioning/datasources/prometheus.yml",
+    "infra/grafana/dashboards/wagering.json",
+    ".github/workflows/ci.yml",
+    "src/config/config.ts",
+    "src/main.ts",
+    "mikro-orm.config.ts",
+    "src/infrastructure/sqs/sqs-queue.ts",
+    "src/infrastructure/observability/logger.ts",
+    "src/interfaces/http/*.ts (openapi, http-error.filter, health, metrics, auth.guard)",
+    "src/application/wagering/wager-command.ts",
+    "src/interfaces/messaging/wager-consumer.ts",
+    "docs/apresentacao/index.html (JS dos slides e tooltip do slide 12)",
+    "README.md",
+    "ARCHITECTURE.md",
+    "test/helpers/env.ts e testes com URLs de banco",
+    "scripts/load-test.ts",
+    "git log -p --all (89 commits) com padrões de segredo; git log --name-only por arquivos de chave",
+    "bun audit; grep de FileInterceptor/multer em src"
+  ],
+  "findings": [
+    {
+      "id": "B-01",
+      "category": "4",
+      "severity": "media",
+      "title": "Superusuário postgres/postgres com porta publicada em todas as interfaces",
+      "file": "docker-compose.yml",
+      "lines": "5-11",
+      "snippet": "image: postgres:17.6-alpine\n    environment:\n      POSTGRES_USER: postgres\n      POSTGRES_PASSWORD: postgres\n      POSTGRES_DB: wagering\n    ports:\n      - \"${POSTGRES_PORT:-5432}:5432\"",
+      "description": "O superusuário do cluster usa senha trivial e a porta 5432 é publicada sem prefixo 127.0.0.1, então escuta em 0.0.0.0 do host. O mesmo par aparece em docker-compose.test.yml:8 (porta 5433), test/helpers/env.ts:17 e test/integration/db-outage.test.ts:20,53.",
+      "exploitability": "Explorável por qualquer máquina que alcance a porta 5432 do host que rodou docker compose up (rede de escritório, VPS, Wi-Fi público). Conecta como postgres/postgres e tem controle total: lê/escreve o ledger, ignora os GRANTs de wagering_app e as proteções contra UPDATE/DELETE do ledger. Não explorável se o host não for alcançável externamente.",
+      "impact": "Perda total de integridade e confidencialidade dos saldos e do ledger; execução de comandos no container via COPY PROGRAM.",
+      "fix": "Publicar com 127.0.0.1:${POSTGRES_PORT:-5432}:5432, ler a senha de uma variável obrigatória sem default (${POSTGRES_PASSWORD:?defina}) e documentar a geração no README.",
+      "acceptance": [
+        "docker compose config mostra a porta do postgres ligada a 127.0.0.1",
+        "docker compose up falha com mensagem clara se POSTGRES_PASSWORD não estiver definido",
+        "grep -rn 'POSTGRES_PASSWORD: postgres' docker-compose.yml não retorna nada"
+      ],
+      "issueGroup": "credenciais-padrao-dev"
+    },
+    {
+      "id": "B-02",
+      "category": "4",
+      "severity": "media",
+      "title": "Papéis wagering_owner/owner e wagering_app/app com senha trivial, versionados em vários arquivos",
+      "file": "infra/postgres/init-roles.sql",
+      "lines": "5-6",
+      "snippet": "CREATE ROLE wagering_owner LOGIN PASSWORD 'owner';\nCREATE ROLE wagering_app LOGIN PASSWORD 'app';",
+      "description": "As senhas dos dois papéis são literais no SQL de init e repetidas em docker-compose.yml:50 (MIGRATION_DATABASE_URL ...wagering_owner:owner@...), docker-compose.yml:62 (DATABASE_URL ...wagering_app:app@...), .env.example:9, mikro-orm.config.ts:12 (LOCAL_OWNER_URL), test/helpers/env.ts:14-15 e testes.",
+      "exploitability": "Quem alcançar o Postgres (ver B-01) entra como wagering_owner e é dono do schema: pode alterar migrations, dar drop de tabelas, remover triggers que protegem o ledger. Como wagering_app, tem SELECT/INSERT/UPDATE em todas as tabelas. Só vale se a rede do banco não for isolada e a instância não tiver as senhas trocadas.",
+      "impact": "Quebra das garantias de imutabilidade do ledger e do menor privilégio entre owner e app.",
+      "fix": "Gerar as senhas por variável de ambiente no init (script .sh com envsubst ou psql -v) e propagar via compose com ${VAR:?}. Manter os valores fracos só nos arquivos de teste (docker-compose.test.yml).",
+      "acceptance": [
+        "init-roles.sql não contém senha literal",
+        "compose de desenvolvimento exige as senhas por variável",
+        "mikro-orm.config.ts não carrega fallback com credencial fora de localhost:5433"
+      ],
+      "issueGroup": "credenciais-padrao-dev"
+    },
+    {
+      "id": "B-03",
+      "category": "4",
+      "severity": "media",
+      "title": "Nenhuma validação no startup rejeita credenciais padrão ou configuração insegura em produção",
+      "file": "src/config/config.ts",
+      "lines": "29-33",
+      "snippet": "const envSchema = z.object({\n  PORT: z.coerce.number().int().positive().default(3000),\n  DATABASE_URL: z.string().min(1),\n  SQS_ENDPOINT: z.string().url(),",
+      "description": "DATABASE_URL só exige string não vazia e SQS_ENDPOINT só exige URL válida. Não existe NODE_ENV nem checagem que recuse postgres://wagering_app:app@..., usuário postgres, endpoint SQS sem TLS ou chaves AWS 'test'. As chaves AWS nem são lidas pelo config: o SDK as resolve sozinho (sqs-queue.ts:33-37), então a aplicação sobe com qualquer valor. mikro-orm.config.ts:40 ainda cai para LOCAL_OWNER_URL (credencial owner) se MIGRATION_DATABASE_URL e DATABASE_URL faltarem.",
+      "exploitability": "Condição: deploy fora do dev (imagem do Dockerfile reaproveitada com o compose atual). A aplicação sobe normalmente com wagering_app:app, sem alerta. É uma falha de processo, não uma exploração direta: transforma B-01, B-02 e B-05 em exposição silenciosa em produção.",
+      "impact": "Credenciais fracas chegam a produção sem barreira.",
+      "fix": "Adicionar NODE_ENV (ou APP_ENV) ao schema; em production, rejeitar via superRefine senhas conhecidas (app, owner, postgres, test), usuário postgres e SQS_ENDPOINT sem https. Remover o fallback LOCAL_OWNER_URL quando NODE_ENV=production.",
+      "acceptance": [
+        "teste unitário: loadConfig com NODE_ENV=production e DATABASE_URL com senha 'app' lança erro",
+        "teste unitário: loadConfig em dev continua aceitando os defaults",
+        "mikro-orm.config.ts sem fallback com credencial em produção"
+      ],
+      "issueGroup": "credenciais-padrao-dev"
+    },
+    {
+      "id": "B-04",
+      "category": "4",
+      "severity": "media",
+      "title": "Grafana com admin/admin e porta publicada (perfil observability)",
+      "file": "docker-compose.yml",
+      "lines": "109-118",
+      "snippet": "grafana:\n    image: grafana/grafana:12.1.0\n    profiles: [observability]\n    environment:\n      GF_SECURITY_ADMIN_USER: admin\n      GF_SECURITY_ADMIN_PASSWORD: admin\n      GF_AUTH_ANONYMOUS_ENABLED: \"true\"\n      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer\n    ports:\n      - \"${GRAFANA_PORT:-3000}:3000\"",
+      "description": "Admin padrão admin/admin, documentado no README.md:60, e acesso anônimo como Viewer, com a porta publicada em 0.0.0.0.",
+      "exploitability": "Só com --profile observability ativo. Qualquer pessoa que alcance a porta 3000 vê os dashboards sem login e pode entrar como admin com admin/admin: troca datasource, cria API keys, edita painéis. O datasource aponta apenas para o Prometheus interno, então o alcance lateral é limitado a métricas.",
+      "impact": "Tomada do Grafana e leitura de métricas operacionais. Sem acesso direto a dados de apostas.",
+      "fix": "Usar GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?}, publicar em 127.0.0.1 e manter o anônimo desligado fora de demo.",
+      "acceptance": [
+        "docker compose --profile observability config falha sem GRAFANA_ADMIN_PASSWORD",
+        "login admin/admin retorna 401",
+        "porta ligada a 127.0.0.1"
+      ],
+      "issueGroup": "credenciais-padrao-dev"
+    },
+    {
+      "id": "B-05",
+      "category": "4",
+      "severity": "media",
+      "title": "Chaves AWS 'test/test' e MiniStack sem autenticação com porta publicada",
+      "file": "docker-compose.yml",
+      "lines": "20-23, 63-66",
+      "snippet": "ministack:\n    image: ministackorg/ministack:1.5.35\n    ports:\n      - \"${SQS_PORT:-4566}:4566\"\n...\n      AWS_ACCESS_KEY_ID: test\n      AWS_SECRET_ACCESS_KEY: test",
+      "description": "O emulador SQS aceita qualquer credencial, e as chaves test/test ficam em docker-compose.yml:35-36 e 65-66, .env.example:12-13, scripts/load-test.ts:291,725, test/helpers/sqs.ts:20 e README.md:280. A porta 4566 é publicada em 0.0.0.0.",
+      "exploitability": "Quem alcançar a porta 4566 do host envia mensagens direto para wager-transactions.fifo e o consumer as processa como se viessem de um provedor, contornando a API HTTP, e pode purgar ou ler as filas. O consumer não autentica a origem (wager-consumer.ts só valida o envelope). Em AWS real as chaves test não funcionam; o risco é do ambiente local/demo exposto.",
+      "impact": "Injeção de apostas arbitrárias, ou apagar filas e DLQ, com impacto financeiro no ledger.",
+      "fix": "Publicar 4566 em 127.0.0.1. Documentar que em AWS real o consumer usa IAM role e que as chaves test só valem no emulador.",
+      "acceptance": [
+        "porta 4566 ligada a 127.0.0.1 no compose",
+        "README separa explicitamente credenciais de emulador e de produção"
+      ],
+      "issueGroup": "credenciais-padrao-dev"
+    },
+    {
+      "id": "B-06",
+      "category": "extra",
+      "severity": "media",
+      "title": "bun audit: multer 2.4.0 com DoS de severidade alta (transitivo, não alcançado)",
+      "file": "bun.lock",
+      "lines": "n/a (dependência transitiva de @nestjs/platform-express)",
+      "snippet": "multer@2.4.0\n  @nestjs/platform-express > multer\n  high: multer vulnerable to Denial of Service via a pending asynchronous fileFilter after request teardown (>=2.0.0 <2.5.0) - GHSA-q7qp-rjg7-q26m",
+      "description": "bun audit reporta 3 vulnerabilidades: multer 2.4.0 (alta, GHSA-q7qp-rjg7-q26m), ajv 8.13.0 (moderada, ReDoS com $data, GHSA-2g4f-4pwh-qvx6, via @mikro-orm/migrations > umzug, só no CLI de migration) e js-yaml 5.3.0 (moderada, GHSA-r3ph-w7gj-g6xm, via @nestjs/swagger).",
+      "exploitability": "multer só é acionado por rotas com FileInterceptor/UploadedFile; grep em src não encontra nenhuma, então não é alcançável hoje. ajv roda só na migration. js-yaml é usado pelo Swagger para ler spec própria, sem YAML do usuário. Vira explorável apenas se alguém adicionar upload de arquivos.",
+      "impact": "Hoje nenhum; risco latente de DoS.",
+      "fix": "Rodar bun audit fix e, se necessário, usar overrides para multer >=2.5.0, ajv >=8.18.0 e js-yaml acima de 5.4.0. Incluir bun audit no CI.",
+      "acceptance": [
+        "bun audit sem vulnerabilidades alta ou crítica",
+        "passo bun audit no ci.yml"
+      ],
+      "issueGroup": "supply-chain",
+      "status": "corrigido",
+      "fixedIn": "cff69c3",
+      "resolution": "overrides em package.json: multer 2.5.0, ajv 8.20.0, js-yaml 5.5.0. bun update dos pacotes diretos não resolveu (platform-express ^11 já resolvia multer 2.4.0). bun audit: 0 vulnerabilidades, nenhuma moderada remanescente."
+    },
+    {
+      "id": "B-07",
+      "category": "extra",
+      "severity": "baixa",
+      "title": "Actions do GitHub fixadas por tag móvel e runner ubuntu-latest",
+      "file": ".github/workflows/ci.yml",
+      "lines": "7, 10-12",
+      "snippet": "runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n\n      - uses: oven-sh/setup-bun@v2",
+      "description": "As duas actions usam tags (@v4, @v2) que o mantenedor pode mover. O workflow não declara permissions, então o GITHUB_TOKEN herda o padrão do repositório.",
+      "exploitability": "Precisa de comprometimento do repositório da action (supply chain). Nesse caso o código roda no CI com o token padrão e pode ler o código-fonte e, conforme permissões do repositório, escrever nele. Sem segredos no workflow.",
+      "impact": "Execução de código arbitrário no CI.",
+      "fix": "Fixar por SHA de commit com comentário da versão, adicionar permissions: contents: read no topo e fixar o runner (ubuntu-24.04).",
+      "acceptance": [
+        "uses: com SHA de 40 caracteres",
+        "bloco permissions: contents: read presente",
+        "runs-on com versão explícita"
+      ],
+      "issueGroup": "supply-chain"
+    },
+    {
+      "id": "B-08",
+      "category": "extra",
+      "severity": "baixa",
+      "title": "Imagens Docker com tag de versão mas sem digest; contêiner da aplicação roda como root",
+      "file": "Dockerfile",
+      "lines": "1, 3-12",
+      "snippet": "FROM oven/bun:1.4.4-alpine\n\nWORKDIR /app\n...\nCMD [\"bun\", \"run\", \"src/main.ts\"]",
+      "description": "Nenhuma imagem usa latest (oven/bun:1.4.4-alpine, postgres:17.6-alpine, ministackorg/ministack:1.5.35, amazon/aws-cli:2.17.0, prom/prometheus:v3.5.0, jaegertracing/all-in-one:1.62.0, grafana/grafana:12.1.0), mas nenhuma tem digest sha256. O Dockerfile não define USER, então a app roda como root, e COPY . . leva test/, docs/ e scripts/ para a imagem. A imagem instala devDependencies (bun install sem --production).",
+      "exploitability": "Uma tag pode ser republicada com conteúdo diferente (ataque de supply chain no registry). Root no contêiner só agrava se houver RCE na app ou em dependência; sem RCE conhecido hoje.",
+      "impact": "Risco latente: escalada de RCE para root do contêiner e superfície maior da imagem.",
+      "fix": "Adicionar USER bun (a imagem oficial já tem), bun install --production --frozen-lockfile em estágio de runtime, e fixar digests dos serviços de produção.",
+      "acceptance": [
+        "docker run --rm <imagem> id mostra usuário não root",
+        "imagens principais com @sha256"
+      ],
+      "issueGroup": "supply-chain"
+    },
+    {
+      "id": "B-09",
+      "category": "4",
+      "severity": "baixa",
+      "title": "Prometheus, Jaeger e /metrics da API sem autenticação",
+      "file": "docker-compose.yml",
+      "lines": "86-107",
+      "snippet": "prometheus:\n    ports:\n      - \"${PROMETHEUS_PORT:-9090}:9090\"\n...\n  jaeger:\n    ports:\n      - \"${JAEGER_PORT:-16686}:16686\"",
+      "description": "As UIs do Prometheus (9090) e do Jaeger (16686) ficam em 0.0.0.0 sem auth, e GET /metrics (src/interfaces/http/metrics.controller.ts:6-17) é público na porta da API. Jaeger guarda traces com IDs de transação e carteira.",
+      "exploitability": "Só com --profile observability e porta alcançável. Leitura anônima de métricas e traces: vazamento de IDs de wallet/transação e de volume operacional. Sem escrita.",
+      "impact": "Divulgação de informação operacional.",
+      "fix": "Publicar em 127.0.0.1 e restringir /metrics a rede interna (porta separada ou proxy).",
+      "acceptance": [
+        "portas 9090 e 16686 em 127.0.0.1",
+        "/metrics inacessível pela porta pública da API"
+      ],
+      "issueGroup": "credenciais-padrao-dev"
+    },
+    {
+      "id": "B-10",
+      "category": "5",
+      "severity": "informativa",
+      "title": "Erros de validação ecoam nomes de chaves enviadas pelo cliente, sem nosniff",
+      "file": "src/application/wagering/wager-command.ts",
+      "lines": "27, 68-73",
+      "snippet": ".strictObject({ ... })\n...\nconst details = parsed.error.issues\n      .map((i) => `${i.path.join(\".\") || \"body\"}: ${i.message}`)\n      .join(\"; \");\nthrow new InvalidPayloadError(`invalid payload: ${details}`);",
+      "description": "strictObject faz o zod responder com 'Unrecognized key' mais a chave enviada, e http-error.filter.ts:90 devolve isso em error.message. O mesmo padrão existe em wallets.controller.ts:57-59 e wager-consumer.ts:63-65. A resposta é application/json (res.json) e não há middleware helmet, então X-Content-Type-Options: nosniff não é enviado.",
+      "exploitability": "Para XSS seria preciso um cliente que injete o campo message em HTML sem escapar, o que não existe neste repositório. Navegadores não renderizam application/json como HTML, e um POST JSON cross-origin não é forjável por formulário. Não explorável hoje; é apenas reflexão de input.",
+      "impact": "Nenhum hoje. Se algum painel futuro renderizar error.message com innerHTML, vira XSS refletido.",
+      "fix": "Opcional: limitar o tamanho das chaves ecoadas e adicionar helmet (nosniff) em main.ts. Qualquer consumidor deve usar textContent.",
+      "acceptance": [
+        "resposta 400 com chave inesperada não excede um limite de tamanho",
+        "cabeçalho X-Content-Type-Options: nosniff presente"
+      ],
+      "issueGroup": "headers-http"
+    }
+  ],
+  "strengths": [
+    {
+      "category": "4",
+      "text": "Nenhum segredo real no repositório nem no histórico: sem AKIA, chave privada ou token de API (ghp_, xox, sk-) em 89 commits. O único arquivo .env* versionado é .env.example, que só contém valores de emulador.",
+      "evidence": ".gitignore:2, git log --all --name-only (apenas .env.example)"
+    },
+    {
+      "category": "4",
+      "text": ".env está no .gitignore e no .dockerignore, então não vai para o repositório nem para a imagem.",
+      "evidence": ".gitignore:2; .dockerignore:3"
+    },
+    {
+      "category": "4",
+      "text": "A aplicação não embute credenciais AWS: o SQSClient usa a cadeia padrão do SDK (IAM role em produção), sem accessKeyId no código de src.",
+      "evidence": "src/infrastructure/sqs/sqs-queue.ts:33-37"
+    },
+    {
+      "category": "4",
+      "text": "DATABASE_URL e SQS_ENDPOINT são obrigatórios e validados no startup; não há default com credencial no config.",
+      "evidence": "src/config/config.ts:31-32"
+    },
+    {
+      "category": "4",
+      "text": "Separação de papéis no banco (owner roda migrations, app só SELECT/INSERT/UPDATE) reduz o dano de uma credencial de runtime vazada.",
+      "evidence": "infra/postgres/init-roles.sql:2-3,14-17"
+    },
+    {
+      "category": "4",
+      "text": "O filtro de erros não vaza mensagens internas nem o body: erros desconhecidos viram 500 'internal error' e o log registra só nome e stack. O logger faz redact de req.body, authorization e valores monetários.",
+      "evidence": "src/interfaces/http/http-error.filter.ts:69,79-86; src/infrastructure/observability/logger.ts:9-12"
+    },
+    {
+      "category": "5",
+      "text": "A tooltip do slide 12 usa textContent, não innerHTML, e o único input vindo da URL (location.hash) passa por regex numérica. Não há innerHTML, insertAdjacentHTML, document.write, eval, new Function nem href/src dinâmico na apresentação.",
+      "evidence": "docs/apresentacao/index.html:1131, 999"
+    },
+    {
+      "category": "5",
+      "text": "O backend só responde JSON ou text/plain; não há template engine nem HTML montado com input do usuário. O Swagger é gerado de DTOs estáticos e os dashboards do Grafana têm só consultas PromQL fixas.",
+      "evidence": "src/interfaces/http/openapi.ts:12-25; src/interfaces/http/metrics.controller.ts:15; infra/grafana/dashboards/wagering.json"
+    },
+    {
+      "category": "5",
+      "text": "Entrada validada com zod strictObject nos endpoints e no consumer, rejeitando campos extras.",
+      "evidence": "src/application/wagering/wager-command.ts:27,36; src/interfaces/http/wallets.controller.ts:24-27"
+    },
+    {
+      "category": "extra",
+      "text": "Dependências com versão exata (exact = true) e instalação com --frozen-lockfile no Docker e no CI; nenhuma imagem usa latest.",
+      "evidence": "bunfig.toml:2; Dockerfile:6; .github/workflows/ci.yml:17; docker-compose.yml:5,21,31,87,102,110"
+    }
+  ]
+}
