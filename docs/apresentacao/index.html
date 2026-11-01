@@ -129,7 +129,7 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 .diagram .bal-100 { opacity: 0; }
 .diagram .bal-20 { fill: var(--ok); opacity: 1; }
 .diagram .bar { fill: var(--ok); transform: scaleX(0.2); transform-box: fill-box; transform-origin: left center; }
-.diagram .lock { color: var(--pending); opacity: 0; }
+.diagram .lock { color: var(--pending); }
 .diagram .lock rect { fill: var(--pending); }
 .diagram .dot { fill: var(--accent); opacity: 0; transform: translate(var(--tx), var(--ty)); }
 .diagram .dot.debit { fill: var(--ok); opacity: 1; }
@@ -173,7 +173,7 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
 .node .note { color: var(--muted); }
 .status { display: grid; }
 .status > span { grid-area: 1 / 1; }
-.s-pend { color: var(--pending); }
+.s-pend { color: var(--pending); opacity: 0; }
 .s-ok { color: var(--ok); }
 
 .slide.active .rise { animation: rise 0.7s ease-out both; }
@@ -305,7 +305,7 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
 }
 
-.flips { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+.flips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 .flip { perspective: 900px; height: 11rem; }
 .flip-inner { position: relative; width: 100%; height: 100%; transform: rotateY(180deg); transform-style: preserve-3d; }
 .face {
@@ -361,6 +361,33 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
   .slide { padding: 6vh 6vw; }
   h1 { font-size: 2rem; }
   h2 { font-size: 1.6rem; }
+  .rules, .flips { grid-template-columns: 1fr; }
+  .flip { height: 9rem; }
+  .diagram .small { font-size: 14px; }
+}
+
+/* Movimento reduzido: sem animação; os elementos já estão no estado final (estado base). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Impressão: um slide por página, sem barra, contador nem botão de ajuda; animações no estado final. */
+@media print {
+  @page { size: 1280px 720px; margin: 0; }
+  html, body { height: auto; overflow: visible; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .progress, .counter, .help, .help-btn { display: none !important; }
+  .slide {
+    display: flex !important;
+    position: relative;
+    height: 100vh;
+    overflow: hidden;
+    break-after: page;
+    page-break-after: always;
+  }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 </style>
 </head>
@@ -681,12 +708,25 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
     }
   });
 
-  // Clique: avança; Shift+clique volta. Ignora links, código, controles e texto selecionado.
+  // Clique: avança; Shift+clique volta. Links, código, controles e texto selecionado não navegam.
+  var NO_NAV = "a, button, pre, code, input, textarea, select, label, summary, .help";
+  function isControl(target) { return !!(target && target.closest && target.closest(NO_NAV)); }
+
+  // Shift+mousedown não estende seleção de texto, para o Shift+clique não virar seleção.
+  document.addEventListener("mousedown", function (e) {
+    if (e.shiftKey && !isControl(e.target)) e.preventDefault();
+  });
+
   document.addEventListener("click", function (e) {
-    if (e.target.closest && e.target.closest("a, button, pre, code, input, textarea, select, label, summary, .help")) return;
+    if (isControl(e.target)) return;
+    if (e.shiftKey) {
+      if (window.getSelection) window.getSelection().removeAllRanges();
+      prev();
+      return;
+    }
     var sel = window.getSelection ? String(window.getSelection()) : "";
-    if (sel.length > 0) return;
-    if (e.shiftKey) prev(); else next();
+    if (sel.length > 0) return; // arrastar para selecionar não avança
+    next();
   });
 
   // Roda do mouse e trackpad. Um gesto (inclusive a inércia do trackpad) avança no máximo 1 slide:

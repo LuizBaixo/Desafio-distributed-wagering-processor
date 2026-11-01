@@ -1,5 +1,7 @@
 # Distributed Wagering Processor
 
+**Apresentação:** abra [docs/apresentacao/index.html](docs/apresentacao/index.html) no navegador.
+
 ![CI](../../actions/workflows/ci.yml/badge.svg)
 
 Serviço financeiro que processa transações de aposta (`BET`, `WIN`, `LOSS`, `REFUND`, `ROLLBACK`) vindas de provedores, por HTTP e SQS. Correto com mensagens duplicadas, fora de ordem e concorrentes, com várias instâncias.
