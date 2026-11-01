@@ -20,6 +20,7 @@ const TRANSIENT_MESSAGES = [
   /timeout exceeded when trying to connect/i,
   /timeout acquiring a connection/i,
   /connection pool/i,
+  /unable to acquire a connection/i,
   /cannot use a pool after calling end/i,
   /client has encountered a connection error/i,
 ];

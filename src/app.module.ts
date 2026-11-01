@@ -20,6 +20,7 @@ import { MetricsController } from "./interfaces/http/metrics.controller";
 import { WalletsController } from "./interfaces/http/wallets.controller";
 import { ERROR_LOGGER, HttpErrorFilter } from "./interfaces/http/http-error.filter";
 import { WageringModule } from "./interfaces/http/wagering.module";
+import { MessagingModule } from "./interfaces/messaging/messaging.module";
 import { WagerEngine } from "./application/wagering/wager-engine";
 import { ReprocessPendingReferences } from "./application/wagering/reprocess-pending-references";
 import { PendingReferenceWorker } from "./interfaces/workers/pending-reference.worker";
@@ -36,6 +37,7 @@ export class AppModule {
         ConfigModule.register(config),
         PersistenceModule,
         WageringModule,
+        MessagingModule,
       ],
       controllers: [HealthController, MetricsController, WalletsController],
       providers: [

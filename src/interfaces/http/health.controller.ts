@@ -1,34 +1,29 @@
 import { Controller, Get, Inject, type OnModuleDestroy } from "@nestjs/common";
-import { GetQueueAttributesCommand, GetQueueUrlCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { Pool } from "pg";
 import { APP_CONFIG, type AppConfig } from "../../config/config";
 import { TransientInfrastructureError } from "../../application/errors";
+import { QUEUE_PORT, type QueuePort } from "../../application/ports/queue";
 
 /**
- * Liveness: processo vivo. Readiness: ping simples em PostgreSQL (SELECT 1) e SQS (GetQueueAttributes).
- * A Tarefa 13 troca o ping direto pelas portas.
+ * Liveness: processo vivo. Readiness: SELECT 1 no PostgreSQL e `QueuePort.ping()` no SQS.
  */
 @Controller("health")
 export class HealthController implements OnModuleDestroy {
   private readonly pool: Pool;
-  private readonly sqs: SQSClient;
 
-  constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {
+  constructor(
+    @Inject(APP_CONFIG) config: AppConfig,
+    @Inject(QUEUE_PORT) private readonly queue: QueuePort,
+  ) {
     this.pool = new Pool({
       connectionString: config.databaseUrl,
       max: 1,
       connectionTimeoutMillis: 2000,
     });
-    this.sqs = new SQSClient({
-      endpoint: config.sqsEndpoint,
-      region: config.awsRegion,
-      maxAttempts: 1,
-    });
   }
 
   async onModuleDestroy(): Promise<void> {
     await this.pool.end();
-    this.sqs.destroy();
   }
 
   @Get("live")
@@ -57,12 +52,7 @@ export class HealthController implements OnModuleDestroy {
 
   private async pingSqs(): Promise<"ok" | "down"> {
     try {
-      const { QueueUrl } = await this.sqs.send(
-        new GetQueueUrlCommand({ QueueName: this.config.queues.wager }),
-      );
-      await this.sqs.send(
-        new GetQueueAttributesCommand({ QueueUrl, AttributeNames: ["QueueArn"] }),
-      );
+      await this.queue.ping();
       return "ok";
     } catch {
       return "down";

@@ -1,4 +1,4 @@
-import { Global, Inject, Module, type OnModuleDestroy } from "@nestjs/common";
+import { Global, Inject, Module, type OnApplicationShutdown } from "@nestjs/common";
 import { MikroORM } from "@mikro-orm/postgresql";
 import { buildMikroOrmConfig } from "../../../mikro-orm.config";
 import { APP_CONFIG, type AppConfig } from "../../config/config";
@@ -13,10 +13,12 @@ import "./money.type";
 export const MIKRO_ORM = Symbol("MIKRO_ORM");
 
 /** Fecha o MikroORM ao desligar o módulo (SIGTERM com enableShutdownHooks). */
-class OrmLifecycle implements OnModuleDestroy {
+class OrmLifecycle implements OnApplicationShutdown {
   constructor(@Inject(MIKRO_ORM) private readonly orm: MikroORM) {}
 
-  async onModuleDestroy(): Promise<void> {
+  // onApplicationShutdown roda depois de todos os beforeApplicationShutdown: consumidores e workers
+  // ainda precisam do banco enquanto terminam o trabalho em andamento.
+  async onApplicationShutdown(): Promise<void> {
     await this.orm.close(true);
   }
 }

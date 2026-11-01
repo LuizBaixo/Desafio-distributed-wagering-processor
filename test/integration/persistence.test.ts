@@ -545,6 +545,7 @@ describe("mapPgError", () => {
     expect(mapPgError(new Error("timeout exceeded when trying to connect"))).toBeInstanceOf(
       TransientInfrastructureError,
     );
+    expect(mapPgError(new Error("Unable to acquire a connection"))).toBeInstanceOf(TransientInfrastructureError);
   });
 
   test("anything else passes through unchanged", () => {

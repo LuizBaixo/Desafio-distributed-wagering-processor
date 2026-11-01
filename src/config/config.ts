@@ -12,6 +12,15 @@ export interface AppConfig {
   roles: Set<AppRole>;
   pending: { maxAttempts: number; pollMs: number };
   faultInject?: "exit_after_commit";
+  consumer: {
+    concurrency: number;
+    shutdownGraceMs: number;
+    /** VisibilityTimeout pedido no ReceiveMessage. */
+    visibilityTimeoutSeconds: number;
+    /** Teto do backoff exponencial de ChangeMessageVisibility. */
+    maxBackoffSeconds: number;
+    waitSeconds: number;
+  };
 }
 
 const envSchema = z.object({
@@ -30,6 +39,11 @@ const envSchema = z.object({
   FAULT_INJECT: z.enum(["exit_after_commit"]).optional(),
   PENDING_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
   PENDING_POLL_MS: z.coerce.number().int().positive().default(1000),
+  CONSUMER_CONCURRENCY: z.coerce.number().int().positive().default(5),
+  SHUTDOWN_GRACE_MS: z.coerce.number().int().nonnegative().default(20_000),
+  CONSUMER_VISIBILITY_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
+  CONSUMER_MAX_BACKOFF_SECONDS: z.coerce.number().int().positive().default(60),
+  CONSUMER_WAIT_SECONDS: z.coerce.number().int().min(0).max(20).default(10),
 });
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -51,6 +65,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     roles: new Set(e.APP_ROLES),
     pending: { maxAttempts: e.PENDING_MAX_ATTEMPTS, pollMs: e.PENDING_POLL_MS },
+    consumer: {
+      concurrency: e.CONSUMER_CONCURRENCY,
+      shutdownGraceMs: e.SHUTDOWN_GRACE_MS,
+      visibilityTimeoutSeconds: e.CONSUMER_VISIBILITY_TIMEOUT_SECONDS,
+      maxBackoffSeconds: e.CONSUMER_MAX_BACKOFF_SECONDS,
+      waitSeconds: e.CONSUMER_WAIT_SECONDS,
+    },
     ...(e.FAULT_INJECT ? { faultInject: e.FAULT_INJECT } : {}),
   };
 }
