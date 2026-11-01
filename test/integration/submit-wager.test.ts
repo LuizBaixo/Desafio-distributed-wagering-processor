@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { WagerCommand } from "../../src/application/wagering/wager-command";
 import { WagerTransactionKind as Kind } from "../../src/domain/wagering/enums";
+import { RecordPermanentFailure } from "../../src/application/wagering/record-permanent-failure";
 import { assertLedgerConsistent } from "../helpers/assert-ledger-consistent";
 import { closePools, migrateUp, ownerPool, resetDb } from "../helpers/db";
 import { buildWagerCommand, createWalletDirect, type DirectWallet } from "../helpers/factories";
@@ -9,11 +10,12 @@ import { startTestApp } from "../helpers/http";
 
 let baseUrl: string;
 let close: () => Promise<void>;
+let app: Awaited<ReturnType<typeof startTestApp>>;
 let wallet: DirectWallet;
 
 beforeAll(async () => {
   await migrateUp();
-  const app = await startTestApp();
+  app = await startTestApp();
   baseUrl = app.baseUrl;
   close = app.close;
 });
@@ -36,6 +38,28 @@ async function count(table: string, where = "true"): Promise<number> {
   const r = await ownerPool().query<{ n: string }>(`SELECT count(*)::text AS n FROM ${table} WHERE ${where}`);
   return Number(r.rows[0]!.n);
 }
+
+describe("replay of a FAILED transaction", () => {
+  test("500 with status FAILED, INFRA_PERMANENT, balance null and idempotentReplay true", async () => {
+    const failed = cmd();
+    const recorded = await app.app!.get(RecordPermanentFailure).execute(failed, {
+      correlationId: "c-1",
+      messageId: "m-1",
+      consumerName: "test-consumer",
+    });
+    expect(recorded).toBe("recorded");
+
+    const res = await postWager(baseUrl, failed);
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({
+      transactionId: expect.any(String),
+      status: "FAILED",
+      failureCode: "INFRA_PERMANENT",
+      balance: null,
+      idempotentReplay: true,
+    });
+  });
+});
 
 describe("POST /wagering/transactions", () => {
   test("BET 25.00: 200 PROCESSED, balance 975.00, idempotentReplay false; outbox grows in the same commit", async () => {

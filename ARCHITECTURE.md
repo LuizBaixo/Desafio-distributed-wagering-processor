@@ -162,7 +162,7 @@ Consistente em todos os endpoints (Design §12):
 | `409` | `WALLET_ALREADY_EXISTS`, `IDEMPOTENCY_CONFLICT`, `EXTERNAL_ID_CONFLICT` |
 | `422` | rejeição de regra de negócio (com `transactionId`, `status: REJECTED`, `failureCode`, `balance`, `idempotentReplay`); o replay de rejeição também devolve `422` |
 | `503` | `INFRA_UNAVAILABLE` com `Retry-After: 1`: falha transitória de infraestrutura, `lock_timeout`, conflito de versão (`ConcurrencyViolationError`), `/health/ready` com falha |
-| `500` | `INTERNAL`: erro não previsto. Logado em `error` com nome e stack, nunca com o body |
+| `500` | `INTERNAL`: erro não previsto. Logado em `error` com nome e stack, nunca com o body. Replay de transação `FAILED` também responde `500`, mas com o corpo da view (`status: FAILED`, `failureCode: INFRA_PERMANENT`, `balance: null`, `idempotentReplay: true`): não reenviar, investigar |
 
 Formato de erro: `{ "error": { "code": "...", "message": "..." } }`.
 
@@ -200,7 +200,7 @@ Quando a referência ainda não existe, a transação grava `PENDING_REFERENCE` 
 | `PROCESSED`, `REJECTED`, `PENDING_REFERENCE`, conflito, duplicata da inbox | `DeleteMessage` (ack), **só depois do commit** |
 | JSON malformado, envelope inválido, `InvalidPayloadError`, `InvalidMoneyError` | permanente: copia para a DLQ com o atributo `reason` (`MALFORMED_JSON`, `INVALID_PAYLOAD`, `INVALID_MONEY`) e só então apaga da fila principal. Se a cópia falhar, vira retry: nunca apaga sem copiar |
 | `TransientInfrastructureError`, `ConcurrencyViolationError`, `lock_timeout` | transitório: sem ack, `ChangeMessageVisibility(min(2^receiveCount, 60))`, métrica `retries_total{component="consumer"}`. Depois de 5 recebimentos, o redrive do SQS move a mensagem para a DLQ |
-| Qualquer outro erro | permanente com `reason = INFRA_PERMANENT`. Neste caso a transação **não** é gravada como `FAILED`; a mensagem na DLQ é o registro auditável |
+| Qualquer outro erro | permanente com `reason = INFRA_PERMANENT`: grava `FAILED` (`INFRA_PERMANENT`) quando a wallet existe e a key é nova; depois DLQ |
 
 **Shutdown:** o consumidor para de iniciar novos `receive`, mas não aborta o long poll em curso. Abortar deixaria as mensagens que o servidor já entregou invisíveis por até 30 s. As mensagens trazidas por esse último `receive` voltam com visibilidade 0. Depois ele espera as mensagens em andamento por até `SHUTDOWN_GRACE_MS=20000` e devolve as restantes com `ChangeMessageVisibility(0)`.
 
@@ -275,6 +275,5 @@ Limitação conhecida: o MiniStack é uma emulação. Comportamentos finos de SQ
 - Cadeias de pendentes: se a referência existe mas também está `PENDING_REFERENCE`, o dependente continua pendente. A cadeia sempre termina, porque a raiz esgota o limite e é rejeitada com `REFERENCE_NOT_FOUND`, e o `markDependentsDue` no `reject` acorda os dependentes. Eles então terminam com `REFERENCE_NOT_PROCESSED`. O tempo máximo de uma cadeia é o tempo da raiz mais um ciclo do worker por nível.
 - O teste de `SIGTERM` com processo real roda em Linux e macOS. No Windows ele é pulado (`skipIf(win32)`), porque o Windows não entrega `SIGTERM` (o `kill` vira `TerminateProcess`). Lá o mesmo caminho é coberto dentro do processo, via `app.close()`. A suíte completa foi verificada nos dois sistemas.
 - O processo sai com código 0 depois de um shutdown limpo (`enableShutdownHooks(..., { useProcessExit: true })`). Sem essa opção, o Nest reenvia o sinal ao próprio processo depois dos hooks, e o código de saída fica 143, como se o shutdown tivesse sido abortado.
-- Erro permanente inesperado no consumidor vai para a DLQ, mas não grava a transação como `FAILED`.
 - MiniStack é emulação: diferenças com AWS podem existir.
 - Testes de integração e concorrência isolam o banco por execução com `TEST_DB_NAME` (um banco por execução ou pipeline) e as portas dos processos com `TEST_PORT_BASE`. Em CI ou dentro de um container, `TEST_DB_HOST`, `TEST_SQS_ENDPOINT` e `TEST_DOCKER_HOST` apontam os testes para a infraestrutura certa. Duas execuções no mesmo banco se atrapalham, porque cada teste faz `TRUNCATE`.

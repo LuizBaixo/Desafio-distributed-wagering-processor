@@ -25,7 +25,7 @@ const CONFLICT_MESSAGES: Record<string, string> = {
 };
 
 /**
- * Status HTTP (Design §12): processada 200, pendente 202, rejeitada por regra 422, conflito 409.
+ * Status HTTP (Design §12): processada 200, pendente 202, rejeitada por regra 422, conflito 409, FAILED 500.
  * Replay mantém o status da transação original; `idempotentReplay` distingue.
  */
 function respond(outcome: WagerOutcome, res: StatusSetter): unknown {
@@ -38,6 +38,10 @@ function respond(outcome: WagerOutcome, res: StatusSetter): unknown {
       return outcome.view;
     case "rejected":
       res.status(422);
+      return outcome.view;
+    case "failed":
+      // FAILED é erro permanente de infraestrutura já gravado: 500, mas com o corpo da view (traz `status`).
+      res.status(500);
       return outcome.view;
     case "conflict":
       res.status(409);

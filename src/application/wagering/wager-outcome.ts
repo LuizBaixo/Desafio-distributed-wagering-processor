@@ -14,4 +14,5 @@ export type WagerOutcome =
   | { kind: "processed"; view: WagerResultView }
   | { kind: "rejected"; view: WagerResultView }
   | { kind: "pending"; view: WagerResultView }
+  | { kind: "failed"; view: WagerResultView }
   | { kind: "conflict"; code: "IDEMPOTENCY_CONFLICT" | "EXTERNAL_ID_CONFLICT" };

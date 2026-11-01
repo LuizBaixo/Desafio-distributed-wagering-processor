@@ -1,4 +1,12 @@
 import { Global, Module } from "@nestjs/common";
+import type { Clock } from "../../application/ports/clock";
+import type { IdGenerator } from "../../application/ports/id-generator";
+import type { Logger } from "../../application/ports/logger";
+import type { Metrics } from "../../application/ports/metrics";
+import { CLOCK, ID_GENERATOR, METRICS, UNIT_OF_WORK } from "../../application/ports/tokens";
+import type { UnitOfWork } from "../../application/ports/unit-of-work";
+import { RecordPermanentFailure } from "../../application/wagering/record-permanent-failure";
+import { WagerEngine } from "../../application/wagering/wager-engine";
 import { LOGGER } from "../../application/ports/logger";
 import { QUEUE_PORT } from "../../application/ports/queue";
 import { APP_CONFIG, type AppConfig } from "../../config/config";
@@ -30,8 +38,20 @@ import { WagerConsumer } from "./wager-consumer";
     },
     { provide: LOGGER, useFactory: () => createLogger() },
     { provide: FAULT_INJECTION, useFactory: () => new FaultInjection() },
+    {
+      provide: RecordPermanentFailure,
+      inject: [UNIT_OF_WORK, WagerEngine, ID_GENERATOR, CLOCK, METRICS, LOGGER],
+      useFactory: (
+        uow: UnitOfWork,
+        engine: WagerEngine,
+        ids: IdGenerator,
+        clock: Clock,
+        metrics: Metrics,
+        logger: Logger,
+      ) => new RecordPermanentFailure(uow, engine, ids, clock, metrics, logger),
+    },
     WagerConsumer,
   ],
-  exports: [QUEUE_PORT],
+  exports: [QUEUE_PORT, RecordPermanentFailure],
 })
 export class MessagingModule {}

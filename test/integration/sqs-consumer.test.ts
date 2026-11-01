@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { SubmitWagerTransaction } from "../../src/application/wagering/submit-wager-transaction";
 import { spawnApp } from "../helpers/app-process";
 import { assertLedgerConsistent } from "../helpers/assert-ledger-consistent";
 import { closePools, migrateUp, ownerPool, resetDb } from "../helpers/db";
@@ -211,6 +212,74 @@ describe("SQS consumer: permanent failures go to the DLQ", () => {
     const reasons = (await receiveAll(WAGER_DLQ)).map((m) => m.attributes["reason"]).sort();
     expect(reasons).toEqual(["INVALID_MONEY", "INVALID_PAYLOAD", "INVALID_PAYLOAD"]);
     expect(await scalar(`SELECT count(*)::text AS v FROM wager_transactions WHERE kind = 'BET'`)).toBe("0");
+  });
+});
+
+describe("SQS consumer: unexpected errors record FAILED before the DLQ", () => {
+  /** Faz o caso de uso síncrono lançar um erro inesperado (não classificado como transitório). */
+  function breakSubmit(app: TestApp): void {
+    const submit = app.app!.get(SubmitWagerTransaction);
+    submit.execute = async () => {
+      throw new Error("boom");
+    };
+  }
+
+  test("existing wallet: DLQ with INFRA_PERMANENT, one FAILED row, one WagerTransactionRejected in the outbox, main queue empty", async () => {
+    breakSubmit(await startConsumer());
+    const cmd = bet();
+    await sendWager(cmd);
+    await waitFor(async () => (await queueDepth(WAGER_DLQ)) > 0, { what: "message in DLQ" });
+    await waitQueueEmpty();
+
+    const dead = await receiveAll(WAGER_DLQ);
+    expect(dead).toHaveLength(1);
+    expect(dead[0]!.attributes["reason"]).toBe("INFRA_PERMANENT");
+
+    const rows = await ownerPool().query<{ status: string; failure_code: string; result_balance: string | null }>(
+      `SELECT status, failure_code, result_balance FROM wager_transactions WHERE external_transaction_id = $1`,
+      [cmd.externalTransactionId],
+    );
+    expect(rows.rows).toEqual([{ status: "FAILED", failure_code: "INFRA_PERMANENT", result_balance: null }]);
+
+    const events = await ownerPool().query<{ payload: { data: { failureCode: string; transactionId: string } } }>(
+      `SELECT payload FROM outbox_messages WHERE event_type = 'WagerTransactionRejected'`,
+    );
+    expect(events.rows).toHaveLength(1);
+    expect(events.rows[0]!.payload.data.failureCode).toBe("INFRA_PERMANENT");
+    expect(await inboxRows()).toBe("1");
+    expect(await debits()).toBe("0");
+  });
+
+  test("unknown wallet: DLQ with INFRA_PERMANENT and nothing is written", async () => {
+    breakSubmit(await startConsumer());
+    const cmd = bet("25.00", { walletId: crypto.randomUUID() });
+    await sendWager(cmd);
+    await waitFor(async () => (await queueDepth(WAGER_DLQ)) > 0, { what: "message in DLQ" });
+    await waitQueueEmpty();
+
+    const dead = await receiveAll(WAGER_DLQ);
+    expect(dead).toHaveLength(1);
+    expect(dead[0]!.attributes["reason"]).toBe("INFRA_PERMANENT");
+    expect(await scalar(`SELECT count(*)::text AS v FROM wager_transactions WHERE kind = 'BET'`)).toBe("0");
+    expect(await scalar(`SELECT count(*)::text AS v FROM outbox_messages`)).toBe("0");
+    expect(await inboxRows()).toBe("0");
+  });
+
+  test("a key that already has a row is not overwritten: the message still goes to the DLQ", async () => {
+    const app = await startConsumer();
+    const cmd = bet();
+    await sendWager(cmd);
+    await waitProcessed(cmd.externalTransactionId);
+    await waitQueueEmpty();
+
+    breakSubmit(app);
+    await sendWager(cmd); // mesma key, outro messageId
+    await waitFor(async () => (await queueDepth(WAGER_DLQ)) > 0, { what: "message in DLQ" });
+    await waitQueueEmpty();
+
+    expect(await txStatus(cmd.externalTransactionId)).toBe("PROCESSED");
+    expect(await scalar(`SELECT count(*)::text AS v FROM wager_transactions WHERE kind = 'BET'`)).toBe("1");
+    expect((await receiveAll(WAGER_DLQ))[0]!.attributes["reason"]).toBe("INFRA_PERMANENT");
   });
 });
 

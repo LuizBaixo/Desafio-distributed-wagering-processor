@@ -168,8 +168,9 @@ export class SubmitWagerTransaction {
       case WagerTransactionStatus.Processed:
         return { kind: "processed", view };
       case WagerTransactionStatus.Rejected:
-      case WagerTransactionStatus.Failed:
         return { kind: "rejected", view };
+      case WagerTransactionStatus.Failed:
+        return { kind: "failed", view };
       default:
         return { kind: "pending", view };
     }

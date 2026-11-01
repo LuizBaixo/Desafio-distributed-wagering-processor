@@ -12,6 +12,7 @@ import type { Metrics } from "../../application/ports/metrics";
 import { QUEUE_PORT, type QueueMessage, type QueuePort } from "../../application/ports/queue";
 import { METRICS } from "../../application/ports/tokens";
 import { wagerPayloadHash } from "../../application/idempotency/payload-hash";
+import { RecordPermanentFailure } from "../../application/wagering/record-permanent-failure";
 import { SubmitWagerTransaction } from "../../application/wagering/submit-wager-transaction";
 import { parseWagerCommand, type WagerCommand } from "../../application/wagering/wager-command";
 import { APP_CONFIG, type AppConfig } from "../../config/config";
@@ -110,6 +111,7 @@ export class WagerConsumer implements OnApplicationBootstrap, BeforeApplicationS
     @Inject(METRICS) private readonly metrics: Metrics,
     @Inject(FAULT_INJECTION) private readonly fault: FaultInjection,
     private readonly submit: SubmitWagerTransaction,
+    private readonly recordFailure: RecordPermanentFailure,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -213,7 +215,7 @@ export class WagerConsumer implements OnApplicationBootstrap, BeforeApplicationS
             inbox: { consumerName: CONSUMER_NAME, messageId, payloadHash: wagerPayloadHash(cmd) },
           });
         } catch (e) {
-          await this.onFailure(m, e);
+          await this.onFailure(m, e, parsed);
           return;
         }
         // Commit feito. Qualquer saída do processo a partir daqui é "crash entre commit e ack".
@@ -223,15 +225,30 @@ export class WagerConsumer implements OnApplicationBootstrap, BeforeApplicationS
     );
   }
 
-  private async onFailure(m: QueueMessage, e: unknown): Promise<void> {
+  private async onFailure(m: QueueMessage, e: unknown, parsed: ParsedMessage): Promise<void> {
     if (isTransient(e)) {
       await this.retryLater(m);
       return;
     }
     if (!(e instanceof InvalidPayloadError) && !(e instanceof InvalidMoneyError)) {
       this.logFailure(e, "permanent failure, sending to DLQ");
+      await this.recordFailed(parsed);
     }
     await this.deadLetter(m, permanentReason(e));
+  }
+
+  /** Grava FAILED antes da DLQ. Se falhar, só loga: a mensagem na DLQ continua sendo o registro. */
+  private async recordFailed(parsed: ParsedMessage): Promise<void> {
+    try {
+      await this.recordFailure.execute(parsed.cmd, {
+        correlationId: parsed.messageId,
+        causationId: parsed.messageId,
+        messageId: parsed.messageId,
+        consumerName: CONSUMER_NAME,
+      });
+    } catch (err) {
+      this.logFailure(err, "recording FAILED transaction failed");
+    }
   }
 
   /** Sem ack. O backoff é 2^receiveCount segundos, com teto; depois de 5 recebimentos o redrive do SQS age. */
