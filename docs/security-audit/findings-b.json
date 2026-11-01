@@ -111,7 +111,9 @@
         "teste unitário: loadConfig em dev continua aceitando os defaults",
         "mikro-orm.config.ts sem fallback com credencial em produção"
       ],
-      "issueGroup": "credenciais-padrao-dev"
+      "issueGroup": "credenciais-padrao-dev",
+      "status": "corrigido",
+      "fixedIn": "b427a95"
     },
     {
       "id": "B-04",

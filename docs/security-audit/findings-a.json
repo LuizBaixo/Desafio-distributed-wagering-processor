@@ -48,7 +48,9 @@
         "Credencial do provedor A em wallet do provedor B retorna 404",
         "Teste de integração cobrindo as 5 rotas com id (wallets get/ledger/reconciliation, transactions por id e por externalId)"
       ],
-      "issueGroup": "authn-authz"
+      "issueGroup": "authn-authz",
+      "status": "corrigido",
+      "fixedIn": "b427a95"
     },
     {
       "id": "A-02",
@@ -67,7 +69,9 @@
         "providerId é derivado da identidade autenticada, não do body",
         "Teste de integração: provedor A não consegue gravar nem ler transações usando a wallet do provedor B"
       ],
-      "issueGroup": "authn-authz"
+      "issueGroup": "authn-authz",
+      "status": "corrigido",
+      "fixedIn": "b427a95"
     },
     {
       "id": "A-03",
@@ -85,7 +89,9 @@
         "APP_GUARD global; rotas sem credencial retornam 401, exceto /health/live e /health/ready",
         "POST /wallets exige credencial com permissão de administração"
       ],
-      "issueGroup": "authn-authz"
+      "issueGroup": "authn-authz",
+      "status": "corrigido",
+      "fixedIn": "b427a95"
     },
     {
       "id": "A-04",
@@ -104,7 +110,10 @@
         "Mais de N chamadas por minuto por origem retornam 429",
         "Teste de carga mostra que reconciliação concorrente não aumenta a latência de BET na mesma wallet acima de um limite definido"
       ],
-      "issueGroup": "dos-limits"
+      "issueGroup": "dos-limits",
+      "status": "corrigido",
+      "fixedIn": "b427a95",
+      "statusNote": "Endpoint exige o scope wallet:admin; o rate limit fica no tratamento de A-05."
     },
     {
       "id": "A-05",
@@ -207,7 +216,9 @@
         "providerId com caracteres de controle retorna 400",
         "GET com externalTransactionId de 1000 chars retorna 400"
       ],
-      "issueGroup": "input-validation"
+      "issueGroup": "input-validation",
+      "status": "corrigido",
+      "fixedIn": "b427a95"
     },
     {
       "id": "A-10",
