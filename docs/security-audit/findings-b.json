@@ -1,0 +1,383 @@
+{
+  "auditor": "B",
+  "round": 2,
+  "stack": {
+    "language": "TypeScript estrito sobre Bun 1.4.4",
+    "framework": "NestJS 11 (platform-express), helmet 8.3.0, zod 4",
+    "orm": "MikroORM 6.6.17 com SQL explícito sobre pg",
+    "auth": "OIDC/JWT opcional (jose 6.2.15; AUTH_MODE=disabled|oidc), escopo wallet:admin e claim provider_id",
+    "frontend": "Apresentação HTML estática (docs/apresentacao/index.html) e Swagger UI em /docs; sem SPA",
+    "deploy": [
+      "docker-compose (postgres 17.6, MiniStack/SQS, app, prometheus, jaeger, grafana)",
+      "Dockerfile oven/bun:1.4.4-alpine, USER bun",
+      "GitHub Actions por SHA"
+    ]
+  },
+  "methodology": {
+    "1": "Fora do escopo do Auditor B (categoria do Auditor A).",
+    "2": "Fora do escopo do Auditor B (categoria do Auditor A).",
+    "3": "Fora do escopo do Auditor B (categoria do Auditor A). Só li o AuthGuard e os controllers para confirmar o que fica sem guarda (/metrics, /health).",
+    "4": "Reverifiquei B-01 a B-05 e B-09 lendo docker-compose.yml, init-roles.sql, config.ts, mikro-orm.config.ts, Dockerfile, .dockerignore, .gitignore, .env.example e README. Testei a guarda de produção do config.ts com 21 variações via loadConfig (URL-encoding, usuário diferente, ?password=, esquema postgresql, ' test', 'TEST', NODE_ENV=Production/prod/'production ', JWKS http, FAULT_INJECT) e subi o app de verdade (TEST_DB_NAME=wagering_forja, portas 4101/4102/4103 de TEST_PORT_BASE): dev, produção com senha '%61pp' e produção com AUTH_MODE=oidc. Histórico: git log --all -p -G com padrões de AKIA/ASIA, PRIVATE KEY, ghp_/github_pat_/xox/sk-, JWT e JWK ('kty'), git log -S'-----BEGIN', 'git log --all --name-only' por .env/.pem/.key, e git grep de senhas e URLs com credencial no HEAD (inclui test/, scripts/, docs/). O banco wagering_forja foi criado e removido por mim; a infra compartilhada não foi alterada.",
+    "5": "Reverifiquei B-10 com requisições reais: headers de /health/live e /docs, 404 com <script> no path, JSON malformado, content-type text/html, body de 70 KB, 401 com cinco formas de Authorization. Li o HTML do /docs por tags script/link/style. Na apresentação, busquei sinks (innerHTML, eval, setAttribute, location, data-tip) e li o JS da tooltip. No gerador de relatório, copiei o script e os fixtures para um diretório temporário fora do repositório, injetei <script> e <img onerror> em todos os campos de texto e rodei com --sample (o HTML foi escrito antes de a etapa do PDF falhar de propósito com EDGE_PATH inexistente), depois contei as tags no HTML.",
+    "extra": "Supply chain: bun audit (0 vulnerabilidades); overrides conferidos no registro npm e no bun.lock; SHAs das actions conferidos com git ls-remote contra as tags v4.4.0 e v2.2.0; manifest de cada imagem do compose e do Dockerfile (docker manifest inspect); USER e COPY do Dockerfile; ignore dos arquivos .env.* com git check-ignore. Os apps de teste foram encerrados no fim e o banco wagering_forja foi apagado."
+  },
+  "coverage": [
+    "Arquivos lidos por inteiro: docker-compose.yml, Dockerfile, .dockerignore, .gitignore, .env.example, src/config/config.ts, src/main.ts, mikro-orm.config.ts, infra/postgres/init-roles.sql, .github/workflows/ci.yml, bunfig.toml, package.json",
+    "Auth novo: src/infrastructure/auth/oidc-token-verifier.ts, principal.ts; src/interfaces/http/auth.guard.ts, auth.module.ts, correlation-id.ts, http-error.filter.ts, metrics.controller.ts",
+    "Rodada 1: docs/security-audit/round-1/findings-b.json (B-01..B-10 e strengths) e Desafio/03-Plano/Auditoria de Seguranca.md",
+    "Histórico git: 104 commits (--all) e 59 em 606d0dd..HEAD; padrões de segredo, chaves privadas, JWK/JWT, arquivos .env/.pem/.key",
+    "Testes dinâmicos: loadConfig com 21 variações; app em 4101 (dev), 4102 (produção com %61pp), 4103 (produção com OIDC e JWKS http); curl em /health/live, /docs, /docs-json, /docs-yaml, /metrics, /wagering/transactions, /wallets/:id",
+    "Apresentação docs/apresentacao/index.html (JS de tooltip, hash, links, sinks)",
+    "docs/security-audit/generate-report.ts (esc, validate, flags do Edge/CDP) e execução com --sample em diretório temporário com fixtures maliciosos",
+    "bun audit; verificação dos overrides no registro npm; git ls-remote das actions; docker manifest inspect das 7 imagens",
+    "test/helpers/env.ts, test/helpers/oidc.ts, test/unit/config/config-auth.test.ts, test/integration/auth.test.ts (somente para checar segredos e a origem das chaves JWT)"
+  ],
+  "findings": [
+    {
+      "id": "B-11",
+      "status": "corrigido",
+      "fixedIn": "0035718",
+      "category": "4",
+      "severity": "media",
+      "title": "Validação de produção da senha padrão é por substring literal e é contornada por URL-encoding, outro usuário ou query string",
+      "file": "src/config/config.ts",
+      "lines": "79, 99-101",
+      "snippet": "const DEFAULT_DB_PASSWORDS = [\"postgres:postgres\", \":owner@\", \":app@\"];\n...\nif (DEFAULT_DB_PASSWORDS.some((p) => e.DATABASE_URL.includes(p))) {",
+      "description": "O bloqueio (reverifica B-03) procura as três substrings literais na DATABASE_URL crua. O driver pg decodifica a URL, então qualquer forma equivalente da mesma senha passa: 'postgres://wagering_app:%61pp@host/db', 'postgres://wagering_owner:%6Fwner@...', 'postgres://postgres:%70ostgres@...', 'postgres://wagering_owner@host/db?password=owner', e 'postgres://admin:postgres@...' (usuário diferente de 'postgres' com a senha padrão). Testei com loadConfig e também subindo o app de verdade: com NODE_ENV=production, AUTH_MODE=disabled e DATABASE_URL=postgres://wagering_app:%61pp@localhost:5433/..., o processo iniciou e /health/ready respondeu 'db=ok' (porta 4102 do TEST_PORT_BASE), ou seja, conectou em produção com a senha padrão 'app'. Rejeitados corretamente: app:app, owner:owner, postgres:postgres e o esquema postgresql://.",
+      "exploitability": "Não é explorável por um atacante externo sozinho: exige que o operador entregue a senha padrão de um jeito não literal (URL-encoded, via query, com usuário diferente). A condição realista é o erro de configuração que o B-03 queria barrar (reaproveitar o .env de dev em produção); a guarda dá falsa sensação de segurança porque cobre só a grafia exata do compose.",
+      "impact": "Um deploy de produção com a senha padrão do banco passa na guarda de startup e conecta, sem aviso.",
+      "fix": "Parsear a URL com new URL(), decodificar usuário e senha (decodeURIComponent) e ler também o parâmetro 'password' da query. Comparar a senha decodificada, sem depender do usuário, contra uma lista de senhas padrão (postgres, owner, app, admin, test, password). Preferir também exigir que a senha tenha comprimento mínimo em produção.",
+      "acceptance": [
+        "loadConfig com NODE_ENV=production lança para DATABASE_URL com %61pp, %6Fwner, %70ostgres, ?password=owner e admin:postgres",
+        "Teste unitário cobre cada variação acima; senha forte continua aceita",
+        "A mensagem de erro continua sem repetir o valor da senha"
+      ],
+      "issueGroup": "validacao-config-producao"
+    },
+    {
+      "id": "B-12",
+      "status": "corrigido",
+      "fixedIn": "0035718",
+      "category": "4",
+      "severity": "media",
+      "title": "NODE_ENV comparado por igualdade exata: 'Production', 'prod' ou 'production ' desligam toda a validação de produção e ligam o /docs",
+      "file": "src/config/config.ts",
+      "lines": "88, 115",
+      "snippet": "const production = e.NODE_ENV === \"production\";\n...\ndocsEnabled: e.DOCS_ENABLED !== undefined ? e.DOCS_ENABLED === \"true\" : env.NODE_ENV !== \"production\",",
+      "description": "Qualquer valor diferente da string exata 'production' é tratado como desenvolvimento. Testado com loadConfig: NODE_ENV=Production, 'prod' e 'production ' (espaço) aceitam DATABASE_URL=postgres://postgres:postgres@db/w com AWS_ACCESS_KEY_ID=test, AUTH_MODE ausente, e devolvem docsEnabled=true e production=false. Falha aberta: o erro de grafia remove, de uma vez, a exigência de AUTH_MODE explícito, a recusa de senha/chave padrão, o aviso de auth desligada e o /docs fechado.",
+      "exploitability": "Condição: variável de ambiente de produção com maiúscula, abreviação ou espaço (comum em manifests escritos à mão). Sem atacante: é um erro de operação que desativa as defesas e expõe o Swagger com 'Try it out' e o /docs-json.",
+      "impact": "Todas as proteções adicionadas por B-03 e A-06/B-10 ficam inativas sem nenhum log.",
+      "fix": "Normalizar com trim().toLowerCase() e validar NODE_ENV como enum (development|test|production); valor desconhecido deve lançar. Calcular docsEnabled a partir de 'production', não de env.NODE_ENV cru.",
+      "acceptance": [
+        "NODE_ENV='Production' ou ' production' é tratado como produção (ou rejeitado)",
+        "NODE_ENV desconhecido (ex.: 'prod') falha no startup",
+        "docsEnabled e production usam a mesma fonte"
+      ],
+      "issueGroup": "validacao-config-producao"
+    },
+    {
+      "id": "B-13",
+      "status": "corrigido",
+      "fixedIn": "0035718",
+      "category": "4",
+      "severity": "baixa",
+      "title": "Guarda das chaves AWS cobre só AWS_ACCESS_KEY_ID === 'test' (grafia exata)",
+      "file": "src/config/config.ts",
+      "lines": "102",
+      "snippet": "if (e.AWS_ACCESS_KEY_ID === \"test\") problems.push(\"AWS_ACCESS_KEY_ID: the development value 'test' is not allowed in production\");",
+      "description": "Testado: AWS_ACCESS_KEY_ID=' test' (espaço), 'TEST', AWS_SECRET_ACCESS_KEY=test sozinha, e chave ausente com SQS_ENDPOINT=http://localhost:4566 passam em produção. Também não há exigência de https no SQS_ENDPOINT nem checagem do AWS_SECRET_ACCESS_KEY. Se o SDK aceitará ' test' contra o MiniStack não foi testado; o ponto é que a guarda não o cobre.",
+      "exploitability": "Condição: produção apontando para um emulador (SQS_ENDPOINT http local) com chaves de dev em outra grafia. Erro de operação, sem vetor externo direto.",
+      "impact": "O consumer/outbox de produção pode publicar em um emulador sem autenticação sem que o startup reclame.",
+      "fix": "Comparar com trim().toLowerCase() e incluir AWS_SECRET_ACCESS_KEY; em produção exigir SQS_ENDPOINT https e não loopback/hostnames de compose, ou omitir SQS_ENDPOINT para usar o endpoint real da AWS.",
+      "acceptance": [
+        "' test', 'TEST' e AWS_SECRET_ACCESS_KEY=test são rejeitados em produção",
+        "SQS_ENDPOINT http://localhost* é rejeitado em produção"
+      ],
+      "issueGroup": "validacao-config-producao"
+    },
+    {
+      "id": "B-14",
+      "category": "4",
+      "severity": "baixa",
+      "title": ".gitignore e .dockerignore só excluem '.env' exato: .env.production, .env.local e similares são versionados e entram na imagem",
+      "file": ".gitignore",
+      "lines": "2",
+      "snippet": ".env   (.gitignore:2)\n.env   (.dockerignore:3)",
+      "description": "git check-ignore -v .env.production .env.local retorna vazio (rc=1): nenhum dos dois é ignorado. O Dockerfile faz 'COPY . .' (linha 8), então qualquer .env.* criado pelo operador para produção seria commitado por um 'git add .' e copiado para a imagem. A imagem também recebe test/ (com senhas de dev), docs/ e infra/, porque o .dockerignore só lista node_modules, .git, .env e dist. Reverifica B-02: o .env em si segue protegido.",
+      "exploitability": "Condição: alguém cria .env.production/.env.local com segredo real (padrão do próprio ecossistema Node). Nada hoje no repositório; é uma armadilha.",
+      "impact": "Vazamento de segredo para o histórico git ou para uma imagem publicada em registry.",
+      "fix": "Usar '.env*' com exceção '!.env.example' em .gitignore e .dockerignore; acrescentar test, docs, .github e scripts ao .dockerignore.",
+      "acceptance": [
+        "git check-ignore reconhece .env.production, .env.local e .env.test.local",
+        ".dockerignore exclui .env* (menos .env.example), test e docs"
+      ],
+      "issueGroup": "higiene-build"
+    },
+    {
+      "id": "B-15",
+      "category": "5",
+      "severity": "baixa",
+      "title": "CSP desligado por inteiro em tudo que começa com '/docs', com justificativa que não confere",
+      "file": "src/main.ts",
+      "lines": "16-23",
+      "snippet": "const strictHeaders = helmet();\nconst docsHeaders = helmet({ contentSecurityPolicy: false });\n...\n(req.url?.startsWith(\"/docs\") ? docsHeaders : strictHeaders)(req, res, next);",
+      "description": "Verificado ao vivo: GET /health/live devolve o CSP default do helmet (script-src 'self', object-src 'none', frame-ancestors 'self'), e GET /docs, /docs-json e /docs-yaml saem sem Content-Security-Policy. O comentário diz que o Swagger usa script inline, mas o HTML servido em /docs só tem <script src=...> (swagger-ui-bundle.js, -standalone-preset.js, swagger-ui-init.js) e um <style> inline; style-src do helmet já permite 'unsafe-inline'. Não consegui renderizar em navegador, então não afirmo que o CSP padrão funcionaria; afirmo que a premissa do comentário não bate com o HTML. O prefixo também é amplo: qualquer rota futura que comece com '/docs' perde o CSP.",
+      "exploitability": "Só importa com DOCS_ENABLED=true (padrão fora de produção). Não há XSS conhecido no Swagger UI fixado, então o CSP removido é perda de defesa em profundidade na única página HTML dinâmica da API. Sem exploração direta hoje.",
+      "impact": "Se uma versão do swagger-ui-dist tiver XSS (a UI aceita ?url= com um spec remoto), não há CSP para contê-lo.",
+      "fix": "Testar /docs com o CSP do helmet (ajustando só script-src/style-src/connect-src quando necessário) em vez de desligá-lo; restringir a correspondência a '/docs' e '/docs-json|yaml' exatos ou ao prefixo '/docs/'.",
+      "acceptance": [
+        "/docs devolve algum Content-Security-Policy",
+        "Swagger UI carrega e executa 'Try it out' em navegador real com o CSP"
+      ],
+      "issueGroup": "hardening-http"
+    },
+    {
+      "id": "B-16",
+      "category": "4",
+      "severity": "baixa",
+      "title": "Reverifica B-04 (parcial): Grafana continua com admin/admin por default e ganhou acesso anônimo como Viewer",
+      "file": "docker-compose.yml",
+      "lines": "119-124",
+      "snippet": "GF_SECURITY_ADMIN_USER: admin\nGF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}\nGF_AUTH_ANONYMOUS_ENABLED: \"true\"\nGF_AUTH_ANONYMOUS_ORG_ROLE: Viewer",
+      "description": "A senha deixou de ser literal, mas o default ${...:-admin} ainda resolve para a credencial padrão do Grafana, e o acesso anônimo (novo desde a rodada 1) deixa qualquer cliente que alcance a porta ver dashboards e métricas sem login. A porta está em 127.0.0.1 (confirmado em docker-compose.yml:126) e o README documenta isso.",
+      "exploitability": "Condição: perfil observability ligado e porta alcançável fora do loopback (túnel, port-forward do Docker Desktop, alteração do bind). Em um host compartilhado, qualquer usuário local lê as métricas e tenta admin/admin.",
+      "impact": "Leitura de métricas operacionais; login admin com a senha padrão se o operador não definir GRAFANA_ADMIN_PASSWORD.",
+      "fix": "Sem default para GRAFANA_ADMIN_PASSWORD (${GRAFANA_ADMIN_PASSWORD:?defina no .env}) ou gerar senha aleatória no primeiro uso; manter anônimo desligado por padrão.",
+      "acceptance": [
+        "docker compose --profile observability config falha sem GRAFANA_ADMIN_PASSWORD ou usa senha gerada",
+        "Acesso anônimo desligado por padrão"
+      ],
+      "issueGroup": "compose-dev-defaults"
+    },
+    {
+      "id": "B-17",
+      "category": "4",
+      "severity": "baixa",
+      "title": "OIDC_JWKS_URL e OIDC_ISSUER aceitam http:// em produção",
+      "file": "src/config/config.ts",
+      "lines": "41-43",
+      "snippet": "OIDC_ISSUER: z.string().min(1).optional(),\nOIDC_AUDIENCE: z.string().min(1).optional(),\nOIDC_JWKS_URL: z.string().url().optional(),",
+      "description": "z.string().url() aceita http://. Verificado: subi o app com NODE_ENV=production, AUTH_MODE=oidc e OIDC_JWKS_URL=http://127.0.0.1:4199/jwks (porta 4103) e ele iniciou sem objeção. As chaves públicas buscadas por HTTP puro podem ser trocadas por quem estiver no caminho de rede; o jose valida a assinatura contra o que o JWKS devolver. O verificador em si está correto (ver strengths).",
+      "exploitability": "Condição: produção com OIDC_JWKS_URL em http:// (por exemplo um IdP interno sem TLS) e atacante com posição MITM entre o app e o IdP. Aí ele serve um JWKS próprio e forja tokens com qualquer provider_id/scope.",
+      "impact": "Bypass total da autenticação OIDC nessa condição de rede.",
+      "fix": "Em produção exigir https:// para OIDC_JWKS_URL (rejeitar o resto no loadConfig), com exceção opcional explícita para localhost em dev.",
+      "acceptance": [
+        "loadConfig em produção rejeita OIDC_JWKS_URL http://",
+        "Teste unitário cobre https aceito e http recusado"
+      ],
+      "issueGroup": "validacao-config-producao"
+    },
+    {
+      "id": "B-18",
+      "category": "extra",
+      "severity": "baixa",
+      "title": "A aplicação escuta em 0.0.0.0 e, rodando no host (bun run start), fica exposta na rede local com auth desligada",
+      "file": "src/main.ts",
+      "lines": "81",
+      "snippet": "await app.listen(config.port, \"0.0.0.0\");",
+      "description": "O bind em 127.0.0.1 do compose (B-01) só protege o caminho Docker. netstat durante o teste mostrou 0.0.0.0:4101, 0.0.0.0:4102 e 0.0.0.0:4103 em LISTENING. Com AUTH_MODE ausente (padrão fora de produção) todas as rotas, inclusive POST /wallets e a reconciliação, ficam abertas na LAN. O README fala em 'Segurança do ambiente local' só para o compose.",
+      "exploitability": "Condição: desenvolvedor roda 'bun run start' em rede não confiável (Wi-Fi público) sem firewall. Alcançável por qualquer host da mesma rede.",
+      "impact": "Criar wallets e submeter apostas sem credencial na rede local.",
+      "fix": "Ler HOST do ambiente com default 127.0.0.1 fora do container; o compose define HOST=0.0.0.0 para o serviço app.",
+      "acceptance": [
+        "Sem HOST, o processo escuta só em 127.0.0.1",
+        "O compose continua publicando a porta"
+      ],
+      "issueGroup": "hardening-http"
+    },
+    {
+      "id": "B-19",
+      "category": "extra",
+      "severity": "informativa",
+      "title": "Reverifica B-09 (residual): /metrics, /health/* e /docs ficam sem autenticação mesmo com AUTH_MODE=oidc",
+      "file": "src/interfaces/http/metrics.controller.ts",
+      "lines": "7-10",
+      "snippet": "@Controller(\"metrics\")\nexport class MetricsController {\n  ...\n  @Get()",
+      "description": "Verificado em produção com AUTH_MODE=oidc: /health/live e /metrics respondem 200 sem token (o AuthGuard só está nos controllers de wagering e wallets). /metrics expõe contadores por status/kind/source/component (prom-metrics.ts:13-65), sem identificadores de provedor ou de wallet. É a escolha esperada para scraping, e a correção de B-09 foi o bind local.",
+      "exploitability": "Condição: produção atrás de load balancer que publique /metrics. Só revela volume e taxa de erro.",
+      "impact": "Vazamento de métricas operacionais.",
+      "fix": "Bloquear /metrics na borda, ou servir em porta interna separada.",
+      "acceptance": [
+        "/metrics não é alcançável pela rota pública do balanceador (documentado no README/ARCHITECTURE)"
+      ],
+      "issueGroup": "hardening-http"
+    },
+    {
+      "id": "B-20",
+      "category": "extra",
+      "severity": "informativa",
+      "title": "Documentação desatualizada: README diz que o startup não valida defaults, e o link do PDF na apresentação aponta para um arquivo movido",
+      "file": "README.md",
+      "lines": "56",
+      "snippet": "- Em produção, não use os defaults. A aplicação ainda não valida isso no startup: injete as senhas reais por um gerenciador de segredos.",
+      "description": "A validação existe desde b427a95 (config.ts:96-103), então a frase induz a achar que não há guarda (e, por outro lado, esconde que ela é parcial, ver B-11). Além disso docs/apresentacao/index.html:952 linka '../security-audit/relatorio-auditoria-seguranca.pdf', mas o PDF foi arquivado em docs/security-audit/round-1/ (commit 28762ab), então o link está quebrado.",
+      "exploitability": "Não explorável. Risco de decisão errada por documentação divergente.",
+      "impact": "Operador desinformado; link morto na apresentação.",
+      "fix": "Atualizar o README para descrever o que a guarda cobre e o que não cobre; corrigir o href para round-1/ (ou para o relatório da rodada 2) e rodar bun run check:apresentacao.",
+      "acceptance": [
+        "README descreve a validação de produção real",
+        "O link do relatório na apresentação resolve"
+      ],
+      "issueGroup": "docs"
+    },
+    {
+      "id": "B-21",
+      "category": "4",
+      "severity": "informativa",
+      "title": "mikro-orm.config.ts mantém fallback owner:owner@localhost:5433 e cai para DATABASE_URL",
+      "file": "mikro-orm.config.ts",
+      "lines": "12, 39-41",
+      "snippet": "const LOCAL_OWNER_URL = \"postgres://wagering_owner:owner@localhost:5433/wagering\";\n...\nprocess.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL ?? LOCAL_OWNER_URL,",
+      "description": "A senha 'owner' é literal no config das migrations (aceitável: é o papel do docker-compose.test.yml, só localhost). O comando migration:up não passa por loadConfig, então nenhuma guarda de produção vale para ele. Com ambas as variáveis ausentes ele tenta o banco local em vez de falhar; com só DATABASE_URL usa o papel da aplicação, que não tem DDL (falha fechada).",
+      "exploitability": "Só afeta quem roda migrations na máquina com um Postgres local na 5433. Não alcançável remotamente.",
+      "impact": "Nenhum direto; erro de operação possível (migrar o banco errado).",
+      "fix": "Falhar quando MIGRATION_DATABASE_URL e DATABASE_URL estiverem ausentes fora de NODE_ENV=test; mover o fallback para o script de teste.",
+      "acceptance": [
+        "migration:up sem URL falha com mensagem clara"
+      ],
+      "issueGroup": "compose-dev-defaults"
+    },
+    {
+      "id": "B-22",
+      "category": "extra",
+      "severity": "informativa",
+      "title": "FAULT_INJECT=exit_after_commit é aceito em produção; imagens do compose fixadas por tag, sem digest",
+      "file": "src/config/config.ts",
+      "lines": "57",
+      "snippet": "FAULT_INJECT: z.enum([\"exit_after_commit\"]).optional(),",
+      "description": "O gancho de falha (encerra o processo depois do commit) passa em NODE_ENV=production (testado). Exige controle do ambiente do processo, então só é risco de configuração. Em supply chain (reverifica B-08), todas as imagens têm tag fixa e existem (docker manifest inspect: prom/prometheus:v3.5.0, jaegertracing/all-in-one:1.62.0, grafana/grafana:12.1.0, postgres:17.6-alpine, amazon/aws-cli:2.17.0, ministackorg/ministack:1.5.35, oven/bun:1.4.4-alpine), mas nenhuma por digest, e tags podem ser reescritas no registry.",
+      "exploitability": "FAULT_INJECT: precisa controlar o ambiente. Digest: precisa comprometer o registry/tag upstream.",
+      "impact": "Baixo.",
+      "fix": "Recusar FAULT_INJECT em produção; fixar imagens por digest (@sha256) no Dockerfile e no compose.",
+      "acceptance": [
+        "loadConfig rejeita FAULT_INJECT em produção",
+        "Dockerfile e compose usam @sha256"
+      ],
+      "issueGroup": "validacao-config-producao"
+    },
+    {
+      "id": "B-23",
+      "category": "extra",
+      "severity": "informativa",
+      "title": "Gerador do relatório abre a porta de depuração do Edge sem autenticação, em porta aleatória de loopback",
+      "file": "docs/security-audit/generate-report.ts",
+      "lines": "596, 624",
+      "snippet": "const CDP_PORT = 9300 + Math.floor(Math.random() * 600);\n...\n`--remote-debugging-port=${CDP_PORT}`,",
+      "description": "Durante a geração, qualquer processo local da mesma máquina pode se conectar a 127.0.0.1:93xx e comandar o Edge (CDP), incluindo ler arquivos via file://. Janela curta, ferramenta de desenvolvimento, só loopback.",
+      "exploitability": "Condição: outro usuário/processo local mal-intencionado durante os poucos segundos da geração.",
+      "impact": "Baixo.",
+      "fix": "Usar --remote-debugging-pipe em vez de porta TCP, ou aceitar o risco e documentar.",
+      "acceptance": [
+        "Gerador não abre porta TCP de depuração"
+      ],
+      "issueGroup": "docs"
+    }
+  ],
+  "strengths": [
+    {
+      "category": "4",
+      "text": "Reverifica B-01: todos os binds do compose estão em 127.0.0.1 (postgres, ministack, app, prometheus, jaeger, grafana). Confirmado por leitura do arquivo completo; nenhuma porta 'host:container' sem IP.",
+      "evidence": "docker-compose.yml:15,27,77,99,113,126"
+    },
+    {
+      "category": "4",
+      "text": "Reverifica B-02: init-roles.sql não tem senha literal; usa \\getenv e :'var' (psql 15+). Os defaults owner/app existem só como ${VAR:-...} no compose e como fixture de teste.",
+      "evidence": "infra/postgres/init-roles.sql:9-13; docker-compose.yml:12-13"
+    },
+    {
+      "category": "4",
+      "text": "Reverifica B-03 (parcial, ver B-11 a B-13): a guarda existe, exige AUTH_MODE explícito em produção, recusa literalmente app:app, owner:owner, postgres:postgres e AWS_ACCESS_KEY_ID=test (testado, mensagens de erro nomeiam a variável e nunca repetem a senha), e o app inicia com AUTH desligada só com aviso.",
+      "evidence": "src/config/config.ts:96-104; src/interfaces/http/auth.module.ts:17-21"
+    },
+    {
+      "category": "4",
+      "text": "Reverifica B-05: o app não embute credenciais AWS (SDK usa a cadeia padrão); 'test'/'test' aparecem só no compose de dev, no compose de teste e em scripts/load-test.ts (emulador). O README avisa para usar IAM role.",
+      "evidence": "docker-compose.yml:39-40,71-72; scripts/load-test.ts:291,725; README.md:55"
+    },
+    {
+      "category": "4",
+      "text": "Reverifica B-09: Prometheus (127.0.0.1:9090) e Jaeger (127.0.0.1:16686) só publicam em loopback e estão no profile observability; imagens com tag fixa (prom/prometheus:v3.5.0, jaegertracing/all-in-one:1.62.0, grafana/grafana:12.1.0) e as tags existem (docker manifest inspect). Ver B-19 para o residual.",
+      "evidence": "docker-compose.yml:93,99,108,113,116,126"
+    },
+    {
+      "category": "4",
+      "text": "Histórico git completo (104 commits, git log --all) e 606d0dd..HEAD (59 commits): nenhum AKIA/ASIA, chave privada (BEGIN ... PRIVATE KEY), ghp_/github_pat_/xox/sk-, JWT (eyJ...), nem arquivo .env/.pem/.key (só .env.example) em qualquer commit. Os únicos acertos de regex são texto de relatório da rodada 1 descrevendo a busca e código de produção que contém a palavra 'token'.",
+      "evidence": "git log --all -p -G<padrões>; git log --all --name-only (.env.example, src/application/ports/tokens.ts, oidc-token-verifier.ts)"
+    },
+    {
+      "category": "4",
+      "text": "Chaves de teste do jose são geradas em memória a cada execução (generateKeyPair) e só a parte pública é exportada como JWK; nenhuma chave privada ou JWT de exemplo foi commitado, e o README só tem 'Authorization: Bearer ...' genérico.",
+      "evidence": "test/helpers/oidc.ts:15-17; README.md:200"
+    },
+    {
+      "category": "4",
+      "text": "Senhas em testes e fixtures (owner, app, postgres, 's3cr3t-Xk29', 'senha-forte', 'hunter2') são aceitáveis: ambiente efêmero em localhost:5433/4567, strings de teste para a guarda de config e para o filtro de erros (o teste http-error.filter prova que a senha não vaza). Nada aponta para host real.",
+      "evidence": "test/helpers/env.ts:14-17; test/unit/config/config-auth.test.ts:5,57-63; test/unit/interfaces/http-error.filter.test.ts:89"
+    },
+    {
+      "category": "4",
+      "text": ".env.example só traz valores de dev/emulador, com aviso de que os defaults valem somente para desenvolvimento local; .env fica fora do git e da imagem (ver B-14 para o limite do padrão).",
+      "evidence": ".env.example:1-13; .gitignore:2; .dockerignore:3"
+    },
+    {
+      "category": "4",
+      "text": "Reverifica B-08 (parte do USER): o Dockerfile roda como 'bun' (não root); código e node_modules ficam com dono root (instalados antes do USER), então o processo não consegue reescrever o próprio código. Sem ARG/ENV de segredo no Dockerfile.",
+      "evidence": "Dockerfile:5-11"
+    },
+    {
+      "category": "4",
+      "text": "Reverifica B-07: as duas actions estão fixadas por SHA e conferem com as tags declaradas (git ls-remote): actions/checkout 11d5960a3267... = refs/tags/v4.4.0; oven-sh/setup-bun 0c5077e51419... = refs/tags/v2.2.0. Runner ubuntu-24.04, permissions: contents: read, bun-version fixo.",
+      "evidence": ".github/workflows/ci.yml:4-5,11,14,16,18"
+    },
+    {
+      "category": "extra",
+      "text": "Reverifica B-06: bun audit v1.4.4 retorna 'No vulnerabilities found (checked 333 packages)'. Os overrides ajv 8.20.0, js-yaml 5.5.0 e multer 2.5.0 existem no registro npm (multer/2.5.0 devolve HTTP 200; são as versões 'latest'), estão resolvidos no bun.lock; com esses overrides instalados o app sobe e /docs-json e /docs-yaml respondem 200 (testado ao vivo; não afirmo qual dependência usa o js-yaml).",
+      "evidence": "package.json:60-64; bun.lock:267,457,499; bun audit"
+    },
+    {
+      "category": "extra",
+      "text": "Dependências do runtime sem pacotes de upload: multer (override) não é alcançado por nenhum controller; instalação com --frozen-lockfile no Docker e no CI.",
+      "evidence": "Dockerfile:6; .github/workflows/ci.yml:17"
+    },
+    {
+      "category": "5",
+      "text": "Reverifica B-10 (parcial confirmado): helmet ativo em todas as rotas, com X-Content-Type-Options: nosniff, X-Frame-Options, HSTS, Referrer-Policy e CSP restritivo (testado ao vivo em /health/live). Mensagens que ecoam input (nomes de chaves do zod; 'Cannot GET /%3Cscript%3E...' no 404) saem sempre em application/json com nosniff, então não são interpretáveis como HTML. X-Powered-By removido.",
+      "evidence": "src/main.ts:18,72-73; src/application/wagering/wager-command.ts:68-73; src/interfaces/http/http-error.filter.ts:72-76"
+    },
+    {
+      "category": "5",
+      "text": "Reverifica A-06/A-08 (limites): body de 70 KB recebeu 413 em JSON '{error:{code:PAYLOAD_TOO_LARGE}}' (testado), e JSON malformado recebe 400 INVALID_PAYLOAD, sem stack.",
+      "evidence": "src/main.ts:13,29-40,74-75"
+    },
+    {
+      "category": "5",
+      "text": "401 e 403 não ecoam input: o 401 sempre devolve a constante 'missing or invalid credentials' (testado com sem header, 'Bearer ', 'Bearer abc', token alg=none e 'Basic xx'), e o 403 usa mensagens constantes (scope X é constante do código; PROVIDER_MISMATCH fixa). O motivo da falha de JWT não vai ao cliente. X-Correlation-Id é validado por regex e nunca refletido.",
+      "evidence": "src/interfaces/http/auth.guard.ts:38-53; src/application/errors.ts:94-101; src/interfaces/http/correlation-id.ts:3-7"
+    },
+    {
+      "category": "5",
+      "text": "Verificador OIDC correto: issuer, audience e exp obrigatórios, algoritmos restritos a RS256/ES256 (bloqueia none/HS256 e confusão de chave), JWKS remoto com cache do jose, falha de rede vira 401. Token alg=none testado: 401.",
+      "evidence": "src/infrastructure/auth/oidc-token-verifier.ts:21-30"
+    },
+    {
+      "category": "5",
+      "text": "Apresentação: a tooltip usa tip.textContent (data-tip nunca vai para innerHTML); sem innerHTML, outerHTML, insertAdjacentHTML, document.write, eval, new Function, srcdoc, javascript:, onclick/onerror, iframe ou form; o único input externo é location.hash filtrado por /^#slide-(\\d+)$/; os 4 links são relativos e estáticos; nenhum script ou CSS externo. Os setAttribute só recebem constantes ou números.",
+      "evidence": "docs/apresentacao/index.html:1000,1132,949-952,1096-1099"
+    },
+    {
+      "category": "5",
+      "text": "Gerador do relatório escapa todo texto do JSON: injetei '<script>alert(1)</script><img src=x onerror=alert(2)>\"\\'</td>' em id, title, file, lines, snippet, description, exploitability, impact, fix, acceptance, issueGroup, fixedIn, strengths, coverage, methodology e stack numa cópia do script e dos fixtures em diretório temporário (fora do repositório) e rodei com --sample: o HTML gerado tem 0 tags <script> e 0 <img>, e 10 ocorrências de '&lt;script&gt;alert(1)'. severity, category e status são validados contra listas fechadas antes de entrar em atributos style.",
+      "evidence": "docs/security-audit/generate-report.ts:124-137,153-170"
+    },
+    {
+      "category": "5",
+      "text": "Sem HTML dinâmico no backend: respostas são JSON ou text/plain; /docs só existe com DOCS_ENABLED (produção = 404 em /docs e /docs-json, testado na porta 4102).",
+      "evidence": "src/main.ts:77; src/config/config.ts:115"
+    },
+    {
+      "category": "4",
+      "text": "Auth novo (categoria 4): sem segredo no código OIDC; só URL do JWKS, issuer e audience vêm do ambiente. O logger faz redact de authorization e body.",
+      "evidence": "src/infrastructure/auth/oidc-token-verifier.ts:1-31; src/infrastructure/observability/logger.ts:9-12"
+    }
+  ]
+}
