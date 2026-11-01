@@ -2,6 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import type { Pool } from "pg";
 import { appPool, closePools, migrateDown, migrateDownLast, migrateUp, ownerPool, resetDb } from "../helpers/db";
 
+/** Reverte as duas últimas migrations: a de retenção (mais nova) e a de consistência do ledger. */
+async function migrateDownLedgerConsistency(): Promise<void> {
+  await migrateDownLast();
+  await migrateDownLast();
+}
+
 const uuid = () => crypto.randomUUID();
 
 async function pgCode(promise: Promise<unknown>): Promise<string> {
@@ -485,7 +491,7 @@ describe("ledger consistency constraints", () => {
   });
 
   test("down of this migration alone drops the 4 constraints and keeps the initial schema", async () => {
-    await migrateDownLast();
+    await migrateDownLedgerConsistency();
     try {
       expect(await constraintNames()).toEqual([]);
       const tables = await ownerPool().query(`SELECT 1 FROM information_schema.tables WHERE table_name = 'wallet_ledger_entries'`);
@@ -497,7 +503,7 @@ describe("ledger consistency constraints", () => {
   });
 
   test("up over consistent existing data passes", async () => {
-    await migrateDownLast();
+    await migrateDownLedgerConsistency();
     try {
       const w = await insertWallet(ownerPool());
       const tx = await insertTx(ownerPool(), w);
@@ -511,7 +517,7 @@ describe("ledger consistency constraints", () => {
   });
 
   test("up over inconsistent existing data fails with a clear message and changes nothing", async () => {
-    await migrateDownLast();
+    await migrateDownLedgerConsistency();
     try {
       const w = await insertWallet(ownerPool(), { currency: "BRL" });
       const tx = await insertTx(ownerPool(), w);
@@ -534,7 +540,7 @@ describe("ledger consistency constraints", () => {
   });
 
   test("up over a ledger entry whose transaction belongs to another wallet fails with a clear message", async () => {
-    await migrateDownLast();
+    await migrateDownLedgerConsistency();
     try {
       const a = await insertWallet(ownerPool());
       const b = await insertWallet(ownerPool());

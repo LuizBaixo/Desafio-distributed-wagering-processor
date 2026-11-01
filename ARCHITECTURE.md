@@ -25,13 +25,14 @@ Decisões, trade-offs e limitações do Distributed Wagering Processor. Setup e 
 
 ## 2. Processos e papéis
 
-Uma imagem, um código. `APP_ROLES` (lista separada por vírgula, `api,consumer,outbox,pending,reconciler`) decide o que cada processo liga:
+Uma imagem, um código. `APP_ROLES` (lista separada por vírgula, `api,consumer,outbox,pending,reconciler,retention`) decide o que cada processo liga:
 
 - `api`: rotas HTTP.
 - `consumer`: `WagerConsumer`, consumidor de `wager-transactions.fifo` (registrado pelo `MessagingModule`).
 - `outbox`: `OutboxPublisher`, publica em `wallet-events.fifo` (registrado pelo `OutboxModule`).
 - `pending`: `PendingReferenceWorker`, worker de referências pendentes.
 - `reconciler`: `ReconciliationWorker`, job periódico que reconcilia todas as wallets a cada `RECONCILE_INTERVAL_MS` (padrão 5 min). Cada ciclo pega o advisory lock `hashtext('reconciliation')` numa **conexão dedicada** (`pg.Client` fora do pool, `PgAdvisoryLock`) e a mantém até o fim do ciclo; quem não pega o lock pula o ciclo. Lock de sessão não pode ficar numa conexão do pool: ela volta ao pool a cada commit e o lock se perderia ou ficaria preso. O job lê as wallets em páginas de 100 ids e reconcilia uma por transação SQL, com o `FOR SHARE` de `ReconcileWallet`, então uma aposta na mesma wallet espera no máximo o tempo de uma conferência. Não liga no compose por padrão.
+- `retention`: `RetentionWorker`, a cada `RETENTION_INTERVAL_MS` (padrão 1 h) apaga, em lotes de 1000 (`DELETE ... WHERE ctid IN (SELECT ctid ... LIMIT n)`, uma transação por lote), a outbox **publicada** há mais de `OUTBOX_RETENTION_HOURS` (padrão 168) e a inbox recebida há mais de `INBOX_RETENTION_HOURS` (padrão 168, mínimo 24, validado no config e de novo no caso de uso). Mesmo padrão de exclusão mútua do `reconciler`, com o lock `hashtext('retention')`. Outbox com `published_at` nulo nunca é apagada, de qualquer idade. A inbox é medida por `received_at`, porque `processed_at` não é preenchido hoje; o mínimo de 24 h cobre a reentrega do SQS (a retenção das filas de teste e do compose é menor). `wagering_app` ganha `DELETE` só em `outbox_messages` e `inbox_messages` (migration `retention_indexes`; o `down` revoga); `wallet_ledger_entries`, `wager_transactions` e `wallets` seguem sem `DELETE`. Não liga no compose por padrão.
 
 Cada loop liga em `onApplicationBootstrap` só se o papel estiver em `APP_ROLES`, e para em `beforeApplicationShutdown`. O MikroORM fecha em `onApplicationShutdown`, que o Nest executa por último, então o trabalho em andamento termina com o banco ainda disponível. Antes, o ORM fechava em `onModuleDestroy`, que roda *antes* de `beforeApplicationShutdown`, e mensagens em andamento falhavam com `Unable to acquire a connection`.
 

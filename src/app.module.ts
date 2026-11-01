@@ -24,6 +24,7 @@ import { WageringModule } from "./interfaces/http/wagering.module";
 import { MessagingModule } from "./interfaces/messaging/messaging.module";
 import { OutboxModule } from "./interfaces/workers/outbox.module";
 import { ReconciliationModule } from "./interfaces/workers/reconciliation.module";
+import { RetentionModule } from "./interfaces/workers/retention.module";
 import { WagerEngine } from "./application/wagering/wager-engine";
 import { ReprocessPendingReferences } from "./application/wagering/reprocess-pending-references";
 import { PendingReferenceWorker } from "./interfaces/workers/pending-reference.worker";
@@ -44,6 +45,7 @@ export class AppModule {
         MessagingModule,
         OutboxModule,
         ReconciliationModule,
+        RetentionModule,
       ],
       controllers: [HealthController, MetricsController, WalletsController],
       providers: [

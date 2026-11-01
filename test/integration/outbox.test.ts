@@ -201,6 +201,7 @@ describe("publisher da outbox", () => {
               claimDue: scope.outbox.claimDue.bind(scope.outbox),
               release: scope.outbox.release.bind(scope.outbox),
               oldestPendingAgeSeconds: scope.outbox.oldestPendingAgeSeconds.bind(scope.outbox),
+              purgePublishedBefore: scope.outbox.purgePublishedBefore.bind(scope.outbox),
               markPublished: scope.outbox.markPublished.bind(scope.outbox),
               markPublishedMany: async () => {
                 throw new Error("simulated crash before markPublishedMany");

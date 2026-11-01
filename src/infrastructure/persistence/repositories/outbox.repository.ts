@@ -72,4 +72,15 @@ export class PgOutboxRepository implements OutboxRepository {
     );
     return Math.max(0, Number(row?.age ?? 0));
   }
+
+  async purgePublishedBefore(cutoff: Date, limit: number): Promise<number> {
+    return this.db.run(
+      `DELETE FROM outbox_messages
+        WHERE ctid IN (
+          SELECT ctid FROM outbox_messages
+           WHERE published_at IS NOT NULL AND published_at < ?
+           LIMIT ?)`,
+      [cutoff, limit],
+    );
+  }
 }

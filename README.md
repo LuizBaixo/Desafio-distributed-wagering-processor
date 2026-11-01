@@ -221,6 +221,8 @@ Compara o saldo guardado com o ledger e responde `consistent`, `difference` e `c
 
 Com o papel `reconciler` em `APP_ROLES`, um job reconcilia todas as wallets a cada `RECONCILE_INTERVAL_MS`. Com várias instâncias com o papel, só uma roda por ciclo. Métricas: `reconciliation_runs_total`, `reconciliation_wallets_checked_total` e `reconciliation_last_run_timestamp_seconds`.
 
+Com o papel `retention`, um job apaga em lotes a outbox já publicada e a inbox mais velhas que a retenção (`OUTBOX_RETENTION_HOURS`, `INBOX_RETENTION_HOURS`). Outbox ainda não publicada nunca é apagada. Só uma instância roda por ciclo.
+
 ### Health e métricas
 
 ```bash
@@ -356,13 +358,16 @@ Variáveis lidas por `src/config/config.ts` (valores padrão entre parênteses):
 | `MIGRATION_DATABASE_URL` | `DATABASE_URL` | Conexão de migrations (papel `wagering_owner`) |
 | `SQS_ENDPOINT` | obrigatória | Endpoint SQS (MiniStack) |
 | `AWS_REGION` | `us-east-1` | Região |
-| `APP_ROLES` | `api` | Papéis ativos: `api,consumer,outbox,pending,reconciler` |
+| `APP_ROLES` | `api` | Papéis ativos: `api,consumer,outbox,pending,reconciler,retention` |
 | `WAGER_QUEUE_NAME` | `wager-transactions.fifo` | Fila de entrada |
 | `WAGER_DLQ_NAME` | `wager-transactions-dlq.fifo` | DLQ |
 | `WALLET_EVENTS_QUEUE_NAME` | `wallet-events.fifo` | Fila de eventos da outbox |
 | `PENDING_MAX_ATTEMPTS` | `10` | Tentativas do worker de pendentes antes de `REFERENCE_NOT_FOUND` |
 | `PENDING_POLL_MS` | `1000` | Intervalo do worker de pendentes |
 | `RECONCILE_INTERVAL_MS` | `300000` | Intervalo do job de reconciliação (papel `reconciler`). Com várias instâncias com o papel, só uma roda por ciclo (advisory lock) |
+| `OUTBOX_RETENTION_HOURS` | `168` | Idade mínima, desde a publicação, para apagar uma linha da outbox (papel `retention`) |
+| `INBOX_RETENTION_HOURS` | `168` | Idade mínima, desde o recebimento, para apagar uma linha da inbox. Mínimo `24`; abaixo disso o config falha |
+| `RETENTION_INTERVAL_MS` | `3600000` | Intervalo do job de retenção (papel `retention`) |
 | `OUTBOX_POLL_MS` | `500` | Intervalo do publicador da outbox |
 | `CONSUMER_CONCURRENCY` | `5` | Mensagens em paralelo por instância |
 | `SHUTDOWN_GRACE_MS` | `20000` | Tempo para terminar mensagens em andamento no `SIGTERM` |

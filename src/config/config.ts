@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const APP_ROLES = ["api", "consumer", "outbox", "pending", "reconciler"] as const;
+export const APP_ROLES = ["api", "consumer", "outbox", "pending", "reconciler", "retention"] as const;
 export type AppRole = (typeof APP_ROLES)[number];
 
 export interface AppConfig {
@@ -13,6 +13,7 @@ export interface AppConfig {
   pending: { maxAttempts: number; pollMs: number };
   outbox: { pollMs: number; batchSize: number; sendBatch: number };
   reconciliation: { intervalMs: number };
+  retention: { outboxHours: number; inboxHours: number; intervalMs: number };
   faultInject?: "exit_after_commit";
   consumer: {
     concurrency: number;
@@ -42,6 +43,10 @@ const envSchema = z.object({
   PENDING_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
   PENDING_POLL_MS: z.coerce.number().int().positive().default(1000),
   RECONCILE_INTERVAL_MS: z.coerce.number().int().positive().default(300_000),
+  OUTBOX_RETENTION_HOURS: z.coerce.number().int().positive().default(168),
+  // Mínimo de 24 h: a inbox é o que impede a dupla aplicação de uma mensagem reentregue pelo SQS.
+  INBOX_RETENTION_HOURS: z.coerce.number().int().min(24).default(168),
+  RETENTION_INTERVAL_MS: z.coerce.number().int().positive().default(3_600_000),
   OUTBOX_POLL_MS: z.coerce.number().int().positive().default(500),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().positive().default(100),
   OUTBOX_SEND_BATCH: z.coerce.number().int().positive().max(10).default(10),
@@ -73,6 +78,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     pending: { maxAttempts: e.PENDING_MAX_ATTEMPTS, pollMs: e.PENDING_POLL_MS },
     outbox: { pollMs: e.OUTBOX_POLL_MS, batchSize: e.OUTBOX_BATCH_SIZE, sendBatch: e.OUTBOX_SEND_BATCH },
     reconciliation: { intervalMs: e.RECONCILE_INTERVAL_MS },
+    retention: {
+      outboxHours: e.OUTBOX_RETENTION_HOURS,
+      inboxHours: e.INBOX_RETENTION_HOURS,
+      intervalMs: e.RETENTION_INTERVAL_MS,
+    },
     consumer: {
       concurrency: e.CONSUMER_CONCURRENCY,
       shutdownGraceMs: e.SHUTDOWN_GRACE_MS,

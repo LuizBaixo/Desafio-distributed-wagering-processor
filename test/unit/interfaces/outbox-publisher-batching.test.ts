@@ -50,6 +50,9 @@ class FakeOutbox implements OutboxRepository {
   async oldestPendingAgeSeconds(): Promise<number> {
     return 0;
   }
+  async purgePublishedBefore(): Promise<number> {
+    return 0;
+  }
 }
 
 function fakeUow(outbox: OutboxRepository): UnitOfWork {

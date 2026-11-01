@@ -51,6 +51,11 @@ export interface InboxRepository {
    * `conflict`: messageId já visto com payload_hash diferente (nada é gravado).
    */
   tryReceive(m: InboxMessage): Promise<"new" | "duplicate" | "conflict">;
+  /**
+   * Apaga até `limit` linhas recebidas antes de `cutoff` (e, se `processed_at` existir, também processadas
+   * antes dele). Devolve quantas apagou.
+   */
+  purgeProcessedBefore(cutoff: Date, limit: number): Promise<number>;
 }
 
 export interface OutboxRepository {
@@ -63,4 +68,6 @@ export interface OutboxRepository {
   /** Grava attempts e next_attempt_at e zera locked_until. */
   release(m: OutboxMessage): Promise<void>;
   oldestPendingAgeSeconds(now: Date): Promise<number>;
+  /** Apaga até `limit` linhas publicadas antes de `cutoff`. Nunca toca em linha com `published_at` nulo. */
+  purgePublishedBefore(cutoff: Date, limit: number): Promise<number>;
 }

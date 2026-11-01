@@ -19,4 +19,16 @@ export class PgInboxRepository implements InboxRepository {
     );
     return existing !== null && existing.payload_hash !== m.payloadHash ? "conflict" : "duplicate";
   }
+
+  async purgeProcessedBefore(cutoff: Date, limit: number): Promise<number> {
+    // A janela de reentrega começa em `received_at`; `processed_at` pode estar nulo.
+    return this.db.run(
+      `DELETE FROM inbox_messages
+        WHERE ctid IN (
+          SELECT ctid FROM inbox_messages
+           WHERE received_at < ? AND (processed_at IS NULL OR processed_at < ?)
+           LIMIT ?)`,
+      [cutoff, cutoff, limit],
+    );
+  }
 }
