@@ -7,8 +7,11 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: wagering
+      # credenciais fracas aceitas só nos testes (ambiente efêmero, porta em 127.0.0.1)
+      WAGERING_OWNER_PASSWORD: owner
+      WAGERING_APP_PASSWORD: app
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - ./infra/postgres/init-roles.sql:/docker-entrypoint-initdb.d/01-init-roles.sql:ro
     healthcheck:
@@ -20,7 +23,7 @@ services:
   ministack:
     image: ministackorg/ministack:1.5.35
     ports:
-      - "4567:4566"
+      - "127.0.0.1:4567:4566"
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4566/_ministack/health', timeout=2)"]
       interval: 2s

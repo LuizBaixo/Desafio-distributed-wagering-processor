@@ -5,10 +5,14 @@ services:
     image: postgres:17.6-alpine
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      # somente desenvolvimento local: defina no .env para trocar o default
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: wagering
+      # lidas por infra/postgres/init-roles.sql (somente desenvolvimento local)
+      WAGERING_OWNER_PASSWORD: ${WAGERING_OWNER_PASSWORD:-owner}
+      WAGERING_APP_PASSWORD: ${WAGERING_APP_PASSWORD:-app}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - ./infra/postgres/init-roles.sql:/docker-entrypoint-initdb.d/01-init-roles.sql:ro
     healthcheck:
@@ -20,7 +24,7 @@ services:
   ministack:
     image: ministackorg/ministack:1.5.35
     ports:
-      - "${SQS_PORT:-4566}:4566"
+      - "127.0.0.1:${SQS_PORT:-4566}:4566"
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4566/_ministack/health', timeout=2)"]
       interval: 2s
@@ -47,7 +51,8 @@ services:
     build: .
     command: ["bun", "run", "migration:up"]
     environment:
-      MIGRATION_DATABASE_URL: postgres://wagering_owner:owner@postgres:5432/wagering
+      # somente desenvolvimento local (default da senha)
+      MIGRATION_DATABASE_URL: postgres://wagering_owner:${WAGERING_OWNER_PASSWORD:-owner}@postgres:5432/wagering
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,7 +64,8 @@ services:
     environment:
       PORT: "3000"
       APP_ROLES: api,consumer,outbox,pending
-      DATABASE_URL: postgres://wagering_app:app@postgres:5432/wagering
+      # somente desenvolvimento local (default da senha)
+      DATABASE_URL: postgres://wagering_app:${WAGERING_APP_PASSWORD:-app}@postgres:5432/wagering
       SQS_ENDPOINT: http://ministack:4566
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
@@ -68,7 +74,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: wagering-processor
     ports:
-      - "${APP_PORTS:-3001-3003}:3000"
+      - "127.0.0.1:${APP_PORTS:-3001-3003}:3000"
     # SIGTERM -> espera até 40s -> SIGKILL. Ver ARCHITECTURE.md §12 (Shutdown).
     stop_grace_period: 40s
     depends_on:
@@ -90,7 +96,7 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
@@ -104,18 +110,20 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "${JAEGER_PORT:-16686}:16686"
+      - "127.0.0.1:${JAEGER_PORT:-16686}:16686"
 
   grafana:
     image: grafana/grafana:12.1.0
     profiles: [observability]
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      # somente desenvolvimento local: defina GRAFANA_ADMIN_PASSWORD no .env para trocar o default
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # acesso anônimo só como Viewer, somente no profile observability (porta em 127.0.0.1)
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
     volumes:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro

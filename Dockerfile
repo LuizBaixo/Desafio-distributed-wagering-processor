@@ -7,6 +7,9 @@ RUN bun install --frozen-lockfile
 
 COPY . .
 
+# Runtime sem root (usuário "bun" já existe na imagem oficial).
+USER bun
+
 EXPOSE 3000
 
 CMD ["bun", "run", "src/main.ts"]

@@ -48,6 +48,14 @@ Essas portas podem colidir com um Postgres ou LocalStack que já esteja rodando 
 
 Para parar: `docker compose down -v`.
 
+## Segurança do ambiente local
+
+- Todas as portas publicadas pelo compose (`postgres`, `ministack`, `app`, `prometheus`, `jaeger`, `grafana`) fazem bind em `127.0.0.1`. Nenhuma fica acessível pela rede. Para acessar de outra máquina, use um túnel SSH; não troque o bind.
+- As senhas `POSTGRES_PASSWORD`, `WAGERING_OWNER_PASSWORD`, `WAGERING_APP_PASSWORD` e `GRAFANA_ADMIN_PASSWORD` têm defaults de desenvolvimento, listados em `.env.example`. São somente desenvolvimento local. Para trocá-las, defina no `.env`.
+- As chaves `test`/`test` do SQS valem só para o emulador MiniStack. Com AWS real, o consumer deve usar IAM role, nunca essas chaves.
+- Em produção, não use os defaults. A aplicação ainda não valida isso no startup: injete as senhas reais por um gerenciador de segredos.
+- O Grafana aceita acesso anônimo só como `Viewer`, e só com o profile `observability`.
+
 ## Observabilidade local
 
 Opcional, por profile. Sobe Prometheus e Grafana junto com a stack:
