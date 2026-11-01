@@ -20,6 +20,9 @@ export class HealthController implements OnModuleDestroy {
       max: 1,
       connectionTimeoutMillis: 2000,
     });
+    // Sem listener, o erro de uma conexão ociosa (Postgres reiniciou) derruba o processo.
+    // O próximo ping abre outra conexão e reporta o estado real.
+    this.pool.on("error", () => undefined);
   }
 
   async onModuleDestroy(): Promise<void> {

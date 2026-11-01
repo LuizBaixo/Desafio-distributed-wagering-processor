@@ -13,7 +13,17 @@ const TRANSIENT_CODES = new Set([
   "ECONNRESET",
   "ETIMEDOUT",
   "EPIPE",
+  "ENOTFOUND", // DNS: host não resolve
+  "EAI_AGAIN", // DNS: falha temporária
+  "EHOSTUNREACH",
 ]);
+
+/** SQLSTATE classe 08 (connection_exception): 08000, 08001, 08003, 08004, 08006, 08007, 08P01. */
+const CONNECTION_CLASS_PREFIX = "08";
+
+function isTransientCode(code: string): boolean {
+  return TRANSIENT_CODES.has(code) || code.startsWith(CONNECTION_CLASS_PREFIX);
+}
 
 /** Subconjunto de TRANSIENT_CODES que indica disputa de lock (alimenta lock_conflicts_total). */
 const LOCK_CONFLICT_CODES = new Set(["55P03", "40001", "40P01"]);
@@ -35,13 +45,25 @@ function codeOf(e: unknown): string | undefined {
   return codeOf((e as { cause?: unknown }).cause);
 }
 
+/** Todos os `code` da cadeia (erro e `.cause`), do mais externo ao mais interno. */
+function codesOf(e: unknown): string[] {
+  const codes: string[] = [];
+  for (let cur: unknown = e, depth = 0; typeof cur === "object" && cur !== null && depth < 6; depth++) {
+    const code = (cur as { code?: unknown }).code;
+    if (typeof code === "string") codes.push(code);
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return codes;
+}
+
 /** Traduz erros do driver. Transitórios viram `TransientInfrastructureError`; o resto passa sem mudança. */
 export function mapPgError(e: unknown): Error {
   if (e instanceof TransientInfrastructureError) return e;
-  const code = codeOf(e);
-  if (code !== undefined && TRANSIENT_CODES.has(code)) {
+  const codes = codesOf(e);
+  const code = codes.find(isTransientCode);
+  if (code !== undefined) {
     return new TransientInfrastructureError(`database unavailable (${code})`, {
-      lockConflict: LOCK_CONFLICT_CODES.has(code),
+      lockConflict: codes.some((c) => LOCK_CONFLICT_CODES.has(c)),
     });
   }
   if (e instanceof Error) {

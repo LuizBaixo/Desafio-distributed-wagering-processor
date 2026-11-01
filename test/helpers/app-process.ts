@@ -8,6 +8,8 @@ export interface AppProcess {
   /** Envia o sinal, espera o processo terminar e devolve o exit code. */
   kill(signal?: "SIGTERM" | "SIGKILL"): Promise<number>;
   waitExit(): Promise<number>;
+  /** Fim do stderr capturado (diagnóstico). */
+  stderr(): string;
 }
 
 export interface SpawnAppOptions {
@@ -65,6 +67,7 @@ export async function spawnApp(opts: SpawnAppOptions): Promise<AppProcess> {
       return proc.exited;
     },
     waitExit: () => proc.exited,
+    stderr: () => stderrTail,
   };
 
   const deadline = Date.now() + READY_TIMEOUT_MS;
