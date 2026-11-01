@@ -86,16 +86,20 @@ Para derrubar com os volumes: `docker compose --profile observability down -v`.
 
 ### DLQ de transações
 
-Mensagens que o consumidor não consegue processar vão para `wager-transactions-dlq.fifo` com o atributo `reason`.
+Mensagens que o consumidor não consegue processar vão para `wager-transactions-dlq.fifo` com o atributo `reason`. Três casos chegam aqui:
+
+- `INVALID_PAYLOAD`: payload inválido. Vai falhar de novo se for reenviado sem correção.
+- Retries esgotados: o consumidor tentou várias vezes e a infraestrutura (banco, rede) estava indisponível.
+- `INFRA_PERMANENT`: falha de infraestrutura permanente. A transação já ficou `FAILED`, que é terminal.
 
 ```bash
 bun run dlq:list [--limit 10]
 ```
 
-Imprime `messageId`, `reason` e os primeiros 120 caracteres do corpo, sem o campo `money`. Não remove nada da DLQ.
+Imprime `messageId`, `reason` e os primeiros 120 caracteres do corpo, sem o campo `money`. Mensagens `INFRA_PERMANENT` vêm marcadas como `FAILED (terminal)`. Não remove nada da DLQ.
 
 ```bash
-bun run dlq:redrive [--reason INVALID_PAYLOAD] [--max 100] [--dry-run]
+bun run dlq:redrive [--reason INVALID_PAYLOAD] [--max 100] [--dry-run] [--include-failed]
 ```
 
 Move mensagens da DLQ para `wager-transactions.fifo`:
@@ -103,6 +107,16 @@ Move mensagens da DLQ para `wager-transactions.fifo`:
 - `--reason`: move só as mensagens com esse motivo.
 - `--max`: limite de mensagens movidas (padrão `100`).
 - `--dry-run`: mostra quantas seriam movidas e não move nada.
+- `--include-failed`: move também as `INFRA_PERMANENT`, que são puladas por padrão. Imprime um aviso.
+
+Por padrão, o redrive pula as `INFRA_PERMANENT` e informa quantas foram puladas.
+
+**Quando o redrive faz sentido:** as mensagens falharam por retries esgotados durante uma indisponibilidade de infraestrutura. Depois que a infra voltou, o redrive as reprocessa e a aposta é aplicada.
+
+**Quando não faz sentido:**
+
+- Payload inválido (`INVALID_PAYLOAD`): reenviar o mesmo corpo vai falhar de novo. Corrija a origem antes.
+- `INFRA_PERMANENT`: a transação já está `FAILED`. Um redrive só devolveria o replay do `FAILED`, sem aplicar a aposta. A solução é o provedor reenviar a aposta com um `externalTransactionId` novo.
 
 Cada mensagem é copiada com um `MessageDeduplicationId` novo e só é apagada da DLQ depois do envio. O `messageId` do corpo não muda, então reenviar uma mensagem que já foi processada não duplica o débito: a inbox e a idempotência absorvem a reentrega.
 

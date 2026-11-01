@@ -1,11 +1,16 @@
 /**
  * Operação da DLQ de transações de aposta.
  *   bun run dlq:list [--limit 10]
- *   bun run dlq:redrive [--reason INVALID_PAYLOAD] [--max 100] [--dry-run]
+ *   bun run dlq:redrive [--reason INVALID_PAYLOAD] [--max 100] [--dry-run] [--include-failed]
  *
  * Redrive: copia cada mensagem para a fila principal com `MessageDeduplicationId` novo e só apaga da
  * DLQ depois do envio. O `messageId` do corpo não muda, então a inbox e a idempotência absorvem a
  * reentrega de algo que já foi processado.
+ *
+ * Mensagens com `reason=INFRA_PERMANENT` são puladas por padrão: a transação já está FAILED (terminal),
+ * e um redrive só devolveria o replay do FAILED. `--include-failed` as move mesmo assim, com aviso.
+ * A solução para essas é o provedor reenviar a aposta com um `externalTransactionId` novo.
+ * Consulte o README, seção Operação, para quando o redrive faz sentido.
  *
  * Limitação de FIFO: uma mensagem em voo bloqueia as da mesma `MessageGroupId` até ela voltar. Com
  * `--reason`, as de outro motivo do mesmo grupo podem ficar para a próxima execução.
@@ -37,16 +42,21 @@ export interface RedriveOptions {
   reason?: string;
   max: number;
   dryRun: boolean;
+  includeFailed?: boolean;
 }
 
 export interface RedriveResult {
   matched: number;
   moved: number;
+  /** Mensagens INFRA_PERMANENT puladas por serem FAILED (terminal), sem `includeFailed`. */
+  skippedTerminal: number;
 }
 
 /** Visibilidade enquanto a ferramenta segura a mensagem; depois ela volta a ficar visível. */
 const HOLD_SECONDS = 60;
 const PREVIEW_CHARS = 120;
+/** Motivo da DLQ cuja transação já está FAILED (terminal): redrive não a reprocessa. */
+export const TERMINAL_REASON = "INFRA_PERMANENT";
 
 const urlCache = new Map<string, string>();
 async function urlOf(deps: DlqDeps, name: string): Promise<string> {
@@ -136,6 +146,7 @@ export async function redriveDlq(deps: DlqDeps, opts: RedriveOptions): Promise<R
   const skipped: Message[] = [];
   let matched = 0;
   let moved = 0;
+  let skippedTerminal = 0;
   try {
     while (matched < opts.max) {
       const batch = await receive(deps, dlqUrl, 10);
@@ -143,6 +154,11 @@ export async function redriveDlq(deps: DlqDeps, opts: RedriveOptions): Promise<R
       for (const m of batch) {
         if ((opts.reason && reasonOf(m) !== opts.reason) || matched >= opts.max) {
           skipped.push(m);
+          continue;
+        }
+        if (reasonOf(m) === TERMINAL_REASON && !opts.includeFailed) {
+          skipped.push(m);
+          skippedTerminal++;
           continue;
         }
         matched++;
@@ -163,7 +179,7 @@ export async function redriveDlq(deps: DlqDeps, opts: RedriveOptions): Promise<R
         moved++;
       }
     }
-    return { matched, moved };
+    return { matched, moved, skippedTerminal };
   } finally {
     await release(deps, dlqUrl, skipped);
   }
@@ -197,6 +213,7 @@ async function main(): Promise<void> {
       max: { type: "string" },
       reason: { type: "string" },
       "dry-run": { type: "boolean", default: false },
+      "include-failed": { type: "boolean", default: false },
     },
   });
   const deps = defaultDeps();
@@ -204,18 +221,31 @@ async function main(): Promise<void> {
 
   if (command === "list") {
     const items = await listDlq(deps, { limit: parsePositiveInt("limit", values.limit, 10) });
-    for (const i of items) console.log(`${i.messageId}\t${i.reason}\t${i.preview}`);
+    for (const i of items) {
+      const flag = i.reason === TERMINAL_REASON ? "  <-- FAILED (terminal): redrive pula sem --include-failed" : "";
+      console.log(`${i.messageId}\t${i.reason}\t${i.preview}${flag}`);
+    }
     console.log(`${items.length} mensagem(ns) listada(s)`);
     return;
   }
   if (command === "redrive") {
+    const includeFailed = values["include-failed"] ?? false;
+    if (includeFailed) {
+      console.warn(
+        `AVISO: --include-failed move mensagens ${TERMINAL_REASON}. A transação já está FAILED; o redrive só reenvia o replay do FAILED, sem reprocessar a aposta. O correto é o provedor reenviar com um externalTransactionId novo.`,
+      );
+    }
     const result = await redriveDlq(deps, {
       reason: values.reason,
       max: parsePositiveInt("max", values.max, 100),
       dryRun: values["dry-run"] ?? false,
+      includeFailed,
     });
     const mode = values["dry-run"] ? "dry-run: nada movido" : `movidas ${result.moved}`;
     console.log(`${result.matched} mensagem(ns) selecionada(s); ${mode}`);
+    if (result.skippedTerminal > 0) {
+      console.log(`${result.skippedTerminal} ${TERMINAL_REASON} pulada(s) (FAILED, terminal); use --include-failed para movê-las`);
+    }
     return;
   }
   throw new Error("uso: bun run scripts/dlq.ts <list|redrive> [opções]");

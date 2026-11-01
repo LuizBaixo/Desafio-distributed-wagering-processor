@@ -103,6 +103,21 @@ describe("ferramenta de redrive da DLQ", () => {
     expect(await queueDepth(WAGER_DLQ)).toBe(1);
   });
 
+  test("INFRA_PERMANENT não é movida sem --include-failed e é movida com ele", async () => {
+    await putInDlq(buildEnvelope(bet(), crypto.randomUUID()), "INFRA_PERMANENT");
+
+    const skipped = await redriveDlq(deps, { max: 100, dryRun: false });
+    expect(skipped.moved).toBe(0);
+    expect(skipped.skippedTerminal).toBe(1);
+    expect(await queueDepth(WAGER_DLQ)).toBe(1);
+    expect(await queueDepth(WAGER_QUEUE)).toBe(0);
+
+    const forced = await redriveDlq(deps, { max: 100, dryRun: false, includeFailed: true });
+    expect(forced.moved).toBe(1);
+    expect(await queueDepth(WAGER_QUEUE)).toBe(1);
+    expect(await queueDepth(WAGER_DLQ)).toBe(0);
+  });
+
   test("--max limita quantas mensagens são movidas", async () => {
     for (let i = 0; i < 3; i++) await putInDlq(buildEnvelope(bet(), crypto.randomUUID()), "INVALID_PAYLOAD", `g-${i}`);
 
