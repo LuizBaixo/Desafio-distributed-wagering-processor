@@ -14,3 +14,11 @@ export class InvalidMoneyError extends DomainError {
 export class CurrencyMismatchError extends DomainError {
   readonly code = "CURRENCY_MISMATCH";
 }
+
+export class InsufficientFundsError extends DomainError {
+  readonly code = "INSUFFICIENT_FUNDS";
+}
+
+export class UnbalancedLedgerEntryError extends DomainError {
+  readonly code = "UNBALANCED_LEDGER_ENTRY";
+}
