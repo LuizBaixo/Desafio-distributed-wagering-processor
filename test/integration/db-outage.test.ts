@@ -7,6 +7,7 @@ import { buildMikroOrmConfig } from "../../mikro-orm.config";
 import { spawnApp, type AppProcess } from "../helpers/app-process";
 import { buildWagerCommand, createWalletDirect } from "../helpers/factories";
 import { WAGER_DLQ, WAGER_QUEUE, purgeAll, queueDepth, sendWager, waitFor } from "../helpers/sqs";
+import { TEST_DOCKER_HOST } from "../helpers/env";
 
 /**
  * Queda real do banco. Usa um Postgres próprio e descartável (porta 55432), nunca o container
@@ -16,9 +17,9 @@ import { WAGER_DLQ, WAGER_QUEUE, purgeAll, queueDepth, sendWager, waitFor } from
 const CONTAINER = "wagering-outage-pg";
 const PG_PORT = 55432;
 const APP_PORT = Number(process.env.TEST_PORT_BASE ?? 4101) + 40;
-const ADMIN_URL = `postgres://postgres:postgres@localhost:${PG_PORT}/wagering`;
-const OWNER_URL = `postgres://wagering_owner:owner@localhost:${PG_PORT}/wagering`;
-const APP_URL = `postgres://wagering_app:app@localhost:${PG_PORT}/wagering`;
+const ADMIN_URL = `postgres://postgres:postgres@${TEST_DOCKER_HOST}:${PG_PORT}/wagering`;
+const OWNER_URL = `postgres://wagering_owner:owner@${TEST_DOCKER_HOST}:${PG_PORT}/wagering`;
+const APP_URL = `postgres://wagering_app:app@${TEST_DOCKER_HOST}:${PG_PORT}/wagering`;
 
 function docker(...args: string[]): { ok: boolean; out: string } {
   const r = Bun.spawnSync(["docker", ...args], { stdout: "pipe", stderr: "pipe" });
