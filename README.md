@@ -545,7 +545,7 @@ Com a infra de teste no ar, `bun run test` roda tudo. Para encerrar: `bun run in
 
 ### CI
 
-O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda em `push` e `pull_request`, em `ubuntu-24.04`, com limite de 30 minutos e `permissions: contents: read` (sem escrita no repositório). As actions estão fixadas por SHA de commit, com a versão anotada: `actions/checkout` v4.4.0 e `oven-sh/setup-bun` v2.2.0, que instala o Bun `1.4.4`. O job `test` roda estes passos, nesta ordem:
+O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda em `push` e `pull_request`, em `ubuntu-24.04`, com limite de 30 minutos e `permissions: contents: read` (sem escrita no repositório). As actions estão fixadas por SHA de commit, com a versão anotada: `actions/checkout` v5.1.0 e `oven-sh/setup-bun` v2.2.0, que instala o Bun `1.4.4`. O job `test` roda estes passos, nesta ordem:
 
 | Passo | Comando | O que valida |
 |---|---|---|
