@@ -515,9 +515,9 @@ A suíte usa PostgreSQL e MiniStack reais, em containers. Não há mocks de infr
 |---|---|---|---:|
 | Unitários | `test/unit` | Domínio e aplicação, sem I/O. Inclui testes de propriedade com fast-check (`money`, `decideWager`) | 297 |
 | Integração | `test/integration` | PostgreSQL e MiniStack reais: schema e constraints, casos de uso, consumer, outbox, pendentes, auth, DLQ, health, retenção, reconciliação | 286 |
-| Concorrência | `test/concurrency` | Processos reais em paralelo: C1 a C6 e C8 | 11 |
+| Concorrência | `test/concurrency` | Processos reais em paralelo: C1 a C6 e C8 | 12 |
 
-**Estado atual: 594 testes, 0 falhas em Linux (297 unitários, 286 de integração e 11 de concorrência).** No Windows, os mesmos testes com 1 skip: o de `SIGTERM` com processo real, porque o Windows não entrega `SIGTERM`. Lá o mesmo caminho é coberto dentro do processo, via `app.close()`.
+**Estado atual: 595 testes, 0 falhas em Linux (297 unitários, 286 de integração e 12 de concorrência).** No Windows, os mesmos testes com 1 skip: o de `SIGTERM` com processo real, porque o Windows não entrega `SIGTERM`. Lá o mesmo caminho é coberto dentro do processo, via `app.close()`.
 
 ### Infra de teste e isolamento por execução
 
