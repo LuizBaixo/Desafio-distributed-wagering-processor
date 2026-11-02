@@ -111,7 +111,9 @@
         "git check-ignore reconhece .env.production, .env.local e .env.test.local",
         ".dockerignore exclui .env* (menos .env.example), test e docs"
       ],
-      "issueGroup": "higiene-build"
+      "issueGroup": "higiene-build",
+      "status": "corrigido",
+      "fixedIn": "b533745"
     },
     {
       "id": "B-15",
@@ -129,7 +131,9 @@
         "/docs devolve algum Content-Security-Policy",
         "Swagger UI carrega e executa 'Try it out' em navegador real com o CSP"
       ],
-      "issueGroup": "hardening-http"
+      "issueGroup": "hardening-http",
+      "status": "corrigido",
+      "fixedIn": "b533745"
     },
     {
       "id": "B-16",
@@ -218,7 +222,9 @@
         "README descreve a validação de produção real",
         "O link do relatório na apresentação resolve"
       ],
-      "issueGroup": "docs"
+      "issueGroup": "docs",
+      "status": "corrigido",
+      "fixedIn": "b533745"
     },
     {
       "id": "B-21",

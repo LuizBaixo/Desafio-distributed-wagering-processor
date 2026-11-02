@@ -106,7 +106,9 @@
         "Gzip inválido retorna 400 ou 415 e não gera log level 50",
         "Corpo acima de 64 KB (inclusive após gunzip) continua 413"
       ],
-      "issueGroup": "hardening-config-http"
+      "issueGroup": "hardening-config-http",
+      "status": "corrigido",
+      "fixedIn": "b533745"
     },
     {
       "id": "A-R2-05",
@@ -124,7 +126,9 @@
         "503 de readiness não contém db= nem sqs=",
         "Várias chamadas em 1 s executam no máximo um ping real"
       ],
-      "issueGroup": "hardening-config-http"
+      "issueGroup": "hardening-config-http",
+      "status": "corrigido",
+      "fixedIn": "b533745"
     },
     {
       "id": "A-R2-06",
