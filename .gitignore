@@ -1,4 +1,55 @@
-node_modules
+# Dependências
+node_modules/
+
+# Build
+dist/
+build/
+*.tsbuildinfo
+
+# Variáveis de ambiente (segredos locais). Exemplo versionado.
 .env*
 !.env.example
-dist
+
+# Chaves e certificados
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+
+# Logs
+*.log
+npm-debug.log*
+bun-debug.log*
+
+# Testes e cobertura
+coverage/
+.nyc_output/
+junit*.xml
+
+# Temporários
+tmp/
+temp/
+tmp-exp/
+*.tmp
+*.swp
+*~
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.code-workspace
+
+# Ferramentas locais de agentes
+.superpowers/
+
+# Artefatos gerados (apresentação e auditoria)
+docs/apresentacao/_shots/
+docs/apresentacao/arch-draft.html
+docs/security-audit/fixtures/*.pdf
