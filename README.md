@@ -690,7 +690,7 @@ Duas rodadas de auditoria independentes (auditores A e B), com os achados consol
 
 | Rodada | Achados | Situação |
 |---|---|---|
-| 1 | 20 (2 altos, 9 médios, 7 baixos, 2 informativos) | 0 abertos |
+| 1 | 20 (2 altos, 9 médios, 7 baixos, 2 informativos) | 17 corrigidos, 2 parciais (A-07, B-10), 1 aceito; os resíduos dos parciais foram tratados na rodada 2 |
 | 2 | 21 (0 críticos, 0 altos, 5 médios, 10 baixos, 6 informativos) | 0 abertos: 13 corrigidos, 7 aceitos, 1 documentado |
 
 O que está protegido:
