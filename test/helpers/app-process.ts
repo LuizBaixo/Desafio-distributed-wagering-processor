@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { Subprocess } from "bun";
 import { migrateUp } from "./db";
 import { TEST_APP_DATABASE_URL, TEST_QUEUE_ENV, TEST_SQS_ENDPOINT } from "./env";
 import { ensureTestQueues } from "./sqs";
@@ -23,6 +24,38 @@ export interface SpawnAppOptions {
 const READY_TIMEOUT_MS = 30_000;
 const APP_DIR = join(import.meta.dir, "..", "..");
 const MAX_STDERR_CHARS = 8_000;
+
+/** Apps vivos. Quem sai do processo de teste (exit, SIGINT, SIGTERM) mata os que sobraram, para não deixar órfãos. */
+const liveApps = new Set<{ pid: number; proc: Subprocess }>();
+let exitHandlersRegistered = false;
+
+function killLiveAppsSync(): void {
+  for (const entry of liveApps) {
+    try {
+      entry.proc.kill("SIGKILL");
+    } catch {
+      // já morreu
+    }
+  }
+  liveApps.clear();
+}
+
+function registerExitHandlers(): void {
+  if (exitHandlersRegistered) return;
+  exitHandlersRegistered = true;
+  // bun test não tem hook beforeExit próprio; 'exit' cobre o fim normal do processo de teste.
+  process.on("exit", killLiveAppsSync);
+  process.on("SIGINT", () => {
+    killLiveAppsSync();
+    process.exit(130);
+  });
+  process.on("SIGTERM", () => {
+    killLiveAppsSync();
+    process.exit(143);
+  });
+}
+
+registerExitHandlers();
 
 /**
  * Sobe uma instância real da aplicação (`bun run src/main.ts`) como processo separado, ligada ao
@@ -63,10 +96,15 @@ export async function spawnApp(opts: SpawnAppOptions): Promise<AppProcess> {
   })();
 
   const baseUrl = `http://127.0.0.1:${opts.port}`;
+  const liveEntry = { pid: proc.pid, proc };
+  liveApps.add(liveEntry);
+  void proc.exited.then(() => liveApps.delete(liveEntry));
+
   const app: AppProcess = {
     baseUrl,
     pid: proc.pid,
     async kill(signal = "SIGTERM") {
+      liveApps.delete(liveEntry);
       proc.kill(signal);
       const code = await proc.exited;
       // Um consumidor morto por SIGKILL deixa um ReceiveMessage com long poll pendente no SQS
