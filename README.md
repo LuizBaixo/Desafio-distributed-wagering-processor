@@ -1,6 +1,6 @@
 # Distributed Wagering Processor
 
-**Correto mesmo com concorrência e falhas.**
+Desafio técnico · desenvolvido por **Luiz Gustavo Baixo**.
 
 ![CI](../../actions/workflows/ci.yml/badge.svg)
 
