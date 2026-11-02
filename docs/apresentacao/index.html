@@ -406,6 +406,13 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
   .cmp .node, .cmp .node > rect:first-of-type { transition: none; }
   .cmp .node:is(:hover, :focus-visible):not(:has(.node:hover)) { transform: none; }
 }
+/* Clique num nó: pulso curto (360 ms), reiniciado a cada clique pelo script abaixo. */
+.cmp .node.pulse { animation: cmpPulse 360ms ease-out; }
+@keyframes cmpPulse {
+  0% { filter: drop-shadow(0 0 0 rgba(88, 166, 255, 0)); }
+  40% { filter: drop-shadow(0 0 14px rgba(88, 166, 255, 0.9)); }
+  100% { filter: drop-shadow(0 0 8px rgba(88, 166, 255, 0.6)); }
+}
 
 /* Tooltip de uma linha do slide 12 (criada pelo script no fim da página). */
 .cmp-tip { position: fixed; z-index: 20; white-space: nowrap; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: #161b22; color: var(--fg); font: 14px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; text-align: left; pointer-events: none; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); }
@@ -1151,9 +1158,17 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
   });
   svg.addEventListener("focusout", hide);
 
-  // Clique num nó não avança nem volta o slide.
+  // Clique num nó não avança nem volta o slide, e reinicia o pulso (remove, força reflow, reaplica).
   svg.addEventListener("click", function (e) {
-    if (nodeOf(e.target)) e.stopPropagation();
+    var n = nodeOf(e.target);
+    if (!n) return;
+    e.stopPropagation();
+    n.classList.remove("pulse");
+    void n.getBoundingClientRect();
+    n.classList.add("pulse");
+  });
+  svg.addEventListener("animationend", function (e) {
+    if (e.target.classList) e.target.classList.remove("pulse");
   });
   // Espaço e Enter num nó focado também não avançam.
   svg.addEventListener("keydown", function (e) {
@@ -1164,6 +1179,17 @@ h2 { font-size: clamp(1.8rem, 3.6vw, 3.2rem); line-height: 1.15; margin: 0 0 0.6
   });
   // Qualquer tecla fecha a tooltip (ex.: seta para trocar de slide).
   document.addEventListener("keydown", hide);
+  // Clique fora do diagrama ou Escape tira o foco do nó; destaque e tooltip somem junto.
+  function blurNode() {
+    var a = document.activeElement;
+    if (a && svg.contains(a)) a.blur();
+  }
+  document.addEventListener("mousedown", function (e) {
+    if (!svg.contains(e.target)) blurNode();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") blurNode();
+  });
 })();
 </script>
 </body>
