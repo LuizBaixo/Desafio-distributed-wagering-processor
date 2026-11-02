@@ -2,7 +2,7 @@
 
 Desafio técnico · desenvolvido por **Luiz Gustavo Baixo**.
 
-![CI](../../actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/LuizBaixo/Desafio-distributed-wagering-processor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LuizBaixo/Desafio-distributed-wagering-processor/actions/workflows/ci.yml)
 
 [Apresentação](docs/apresentacao/index.html) · [ARCHITECTURE.md](ARCHITECTURE.md) · [Teste de carga](docs/load-test.md) · [Relatório de segurança (PDF)](docs/security-audit/relatorio-auditoria-seguranca.pdf)
 
@@ -546,6 +546,8 @@ Com a infra de teste no ar, `bun run test` roda tudo. Para encerrar: `bun run in
 ### CI
 
 O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda em `push` e `pull_request`, em `ubuntu-24.04`, com limite de 30 minutos e permissão só de leitura. O job `test` instala as dependências com `bun install --frozen-lockfile`, sobe a infra de teste, roda `typecheck`, `test:unit`, `test:integration` e `test:concurrency` com `TEST_DB_NAME=wagering_ci`, e derruba a infra no fim, mesmo se um passo falhar.
+
+O badge no topo leva ao histórico de execuções do workflow.
 
 Para reproduzir o job localmente, dentro de um container `oven/bun:1.4.4-alpine`:
 
