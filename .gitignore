@@ -53,3 +53,7 @@ desktop.ini
 docs/apresentacao/_shots/
 docs/apresentacao/arch-draft.html
 docs/security-audit/fixtures/*.pdf
+
+# HTML intermediário do relatório de segurança (o entregável é o PDF)
+docs/security-audit/**/report.html
+docs/security-audit/report.html
