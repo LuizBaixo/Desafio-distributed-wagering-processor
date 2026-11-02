@@ -151,7 +151,9 @@
         "docker compose --profile observability config falha sem GRAFANA_ADMIN_PASSWORD ou usa senha gerada",
         "Acesso anônimo desligado por padrão"
       ],
-      "issueGroup": "compose-dev-defaults"
+      "issueGroup": "compose-dev-defaults",
+      "status": "aceito",
+      "statusNote": "Grafana existe só no profile observability (opcional, dev), com bind em 127.0.0.1; senha via GRAFANA_ADMIN_PASSWORD. Não faz parte do deploy da aplicação."
     },
     {
       "id": "B-17",
@@ -169,7 +171,10 @@
         "loadConfig em produção rejeita OIDC_JWKS_URL http://",
         "Teste unitário cobre https aceito e http recusado"
       ],
-      "issueGroup": "validacao-config-producao"
+      "issueGroup": "validacao-config-producao",
+      "status": "corrigido",
+      "statusNote": "JWKS e issuer exigem https em produção.",
+      "fixedIn": "3fccb13"
     },
     {
       "id": "B-18",
@@ -187,7 +192,9 @@
         "Sem HOST, o processo escuta só em 127.0.0.1",
         "O compose continua publicando a porta"
       ],
-      "issueGroup": "hardening-http"
+      "issueGroup": "hardening-http",
+      "status": "aceito",
+      "statusNote": "No container o bind em 0.0.0.0 é necessário; no host o compose publica só em 127.0.0.1. Rodar bun run start direto no host é uso de desenvolvimento."
     },
     {
       "id": "B-19",
@@ -204,7 +211,9 @@
       "acceptance": [
         "/metrics não é alcançável pela rota pública do balanceador (documentado no README/ARCHITECTURE)"
       ],
-      "issueGroup": "hardening-http"
+      "issueGroup": "hardening-http",
+      "status": "documentado",
+      "statusNote": "/metrics e /health são para a rede interna (README, seções Operação e Segurança); /docs desligado em produção por padrão."
     },
     {
       "id": "B-20",
@@ -241,7 +250,9 @@
       "acceptance": [
         "migration:up sem URL falha com mensagem clara"
       ],
-      "issueGroup": "compose-dev-defaults"
+      "issueGroup": "compose-dev-defaults",
+      "status": "aceito",
+      "statusNote": "Fallback só para o CLI de migrations em desenvolvimento local; em produção usar MIGRATION_DATABASE_URL."
     },
     {
       "id": "B-22",
@@ -259,7 +270,9 @@
         "loadConfig rejeita FAULT_INJECT em produção",
         "Dockerfile e compose usam @sha256"
       ],
-      "issueGroup": "validacao-config-producao"
+      "issueGroup": "validacao-config-producao",
+      "status": "aceito",
+      "statusNote": "FAULT_INJECT só tem efeito com NODE_ENV=test (fault-injection.ts); em produção é ignorado. Imagens com tag fixa; digest opcional."
     },
     {
       "id": "B-23",
@@ -276,7 +289,9 @@
       "acceptance": [
         "Gerador não abre porta TCP de depuração"
       ],
-      "issueGroup": "docs"
+      "issueGroup": "docs",
+      "status": "aceito",
+      "statusNote": "Ferramenta local de geração do relatório; a porta de depuração é efêmera, em loopback, e fecha ao fim da geração."
     }
   ],
   "strengths": [

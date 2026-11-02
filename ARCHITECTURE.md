@@ -249,7 +249,18 @@ Quando a referência ainda não existe, a transação grava `PENDING_REFERENCE` 
 
 - Health e métricas não exigem autenticação (rede interna).
 - Mensagens SQS são tratadas como canal interno confiável; a identidade do provedor no corpo continua sujeita às validações de domínio.
-- Com `NODE_ENV=production`, `loadConfig` falha se `AUTH_MODE` não estiver definido, se `DATABASE_URL` usar senha padrão ou se `AWS_ACCESS_KEY_ID` for `test`. `AUTH_MODE=disabled` em produção sobe com um aviso no log.
+- **Produção é fail-safe:** qualquer `NODE_ENV` diferente de `development` ou `test` (depois de trim e lowercase, incluindo a variável ausente) liga as validações. O `Dockerfile` define `NODE_ENV=production`, e o compose de dev declara `development`. Em produção, `loadConfig` falha se:
+  - `AUTH_MODE` não estiver definido;
+  - a senha do banco (decodificada da URL, incluindo `?password=`) estiver na denylist ou tiver menos de 12 caracteres;
+  - a chave AWS for `test` ou a chave de exemplo da documentação.
+
+  `AUTH_MODE=disabled` em produção sobe, mas com um aviso no log.
+- **Risco aceito: wallet compartilhada entre provedores.** A wallet não pertence a um provider. Qualquer provider autenticado que conheça `walletId` e `playerId` pode apostar contra ela. A decisão é consciente: em iGaming, a wallet do jogador é a mesma para todos os provedores de jogo, e o desafio não define wallet por provider. O que limita o risco:
+  - o `playerId` precisa bater com a wallet;
+  - os IDs são UUID v7, com 74 bits aleatórios;
+  - todas as operações ficam auditadas no ledger.
+
+  Em produção, a plataforma deve emitir um token de sessão de jogo (launch token) que vincule jogador, wallet e provider, e o guard deve conferir esse vínculo.
 - Em produção, `OIDC_ISSUER` e `OIDC_JWKS_URL` precisam ser `https:`; `http:` e `file:` são recusados com erro que nomeia a variável. Fora de produção, `http` é aceito (testes e dev).
 - `X-Correlation-Id` só é aceito no formato `^[A-Za-z0-9._:-]{1,128}$`; o valor recebido fora dele nunca é refletido.
 

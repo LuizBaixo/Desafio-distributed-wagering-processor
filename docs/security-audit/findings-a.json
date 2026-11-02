@@ -7,7 +7,11 @@
     "orm": "MikroORM 6.6.17 com SQL explícito parametrizado (pg)",
     "auth": "OIDC/JWT opcional (AUTH_MODE=oidc): AuthGuard + OidcTokenVerifier (JWKS remoto) + ClaimsProviderIdentity",
     "frontend": "Nenhum (apresentação HTML estática em docs/apresentacao; Swagger UI em /docs)",
-    "deploy": ["Dockerfile oven/bun:1.4.4-alpine, USER bun", "docker-compose (postgres, ministack, app, prometheus, jaeger, grafana)", "GitHub Actions CI"]
+    "deploy": [
+      "Dockerfile oven/bun:1.4.4-alpine, USER bun",
+      "docker-compose (postgres, ministack, app, prometheus, jaeger, grafana)",
+      "GitHub Actions CI"
+    ]
   },
   "methodology": {
     "1": "Banco sem tranca vira isolamento por provider/tenant. Rodada 2: reverificada a correção de A-02 (claim provider_id) em todos os caminhos que agem em nome de um provider (POST de aposta, GET por id interno, GET por id externo), mais replay de idempotency key, EXTERNAL_ID_CONFLICT, mensagens de erro e eventos. Testado com requisições reais contra o app em AUTH_MODE=oidc (porta 4501, banco wagering_bigorna), com tokens de dois providers e de um admin assinados por um IdP/JWKS local meu (jose).",
@@ -49,7 +53,9 @@
         "Respostas WALLET_NOT_FOUND e WALLET_PLAYER_MISMATCH são indistinguíveis e nenhuma devolve balance",
         "ARCHITECTURE §14 documenta o modelo de posse escolhido"
       ],
-      "issueGroup": "isolamento-provider"
+      "issueGroup": "isolamento-provider",
+      "status": "aceito",
+      "statusNote": "Por design: em iGaming a wallet do jogador é compartilhada entre provedores de jogo; o desafio não define wallet por provider. playerId precisa bater com a wallet e os IDs são UUID v7 (74 bits aleatórios). Recomendação para produção: token de sessão de jogo (launch token) emitido pela plataforma. Ver ARCHITECTURE §14."
     },
     {
       "id": "A-R2-02",
@@ -147,7 +153,10 @@
         "loadConfig com NODE_ENV=Production aplica as mesmas regras",
         "Senha padrão em qualquer caixa é rejeitada em produção"
       ],
-      "issueGroup": "hardening-config-http"
+      "issueGroup": "hardening-config-http",
+      "status": "corrigido",
+      "statusNote": "Detecção de produção fail-safe (0035718) e NODE_ENV=production no Dockerfile, development no compose de dev (b533745).",
+      "fixedIn": "0035718"
     },
     {
       "id": "A-R2-07",
@@ -183,28 +192,106 @@
       "fix": "Documentar no runbook de rotação (publicar a nova chave no JWKS antes de começar a assinar com ela, com margem > 30 s). Se desejado, ajustar cooldownDuration.",
       "acceptance": [
         "Runbook de rotação de chaves descreve a ordem publicar-depois-assinar"
-      ]
+      ],
+      "status": "aceito",
+      "statusNote": "Cooldown de 30 s do jose na rotação de chaves; rotacionar publicando a chave nova no JWKS antes de usá-la para assinar."
     }
   ],
   "strengths": [
-    { "category": "1", "text": "Reverifica A-02 (parcial, ver A-R2-01 para o resíduo): o claim provider_id é checado em TODOS os três caminhos que agem em nome de um provider. Token do prov-b com providerId 'prov-a' no body: 403 PROVIDER_MISMATCH; GET por id externo de outro provider: 403 PROVIDER_MISMATCH; GET por id interno de tx de outro provider: 404 idêntico ao inexistente.", "evidence": "src/interfaces/http/wagering.controller.ts:97,118,133; src/interfaces/http/auth.guard.ts:84-93" },
-    { "category": "1", "text": "Idempotência e conflito de id externo são escopados por provider: o mesmo Idempotency-Key e o mesmo externalTransactionId usados pelo prov-b não colidem com os do prov-a (200 PROCESSED nas duas contas); replay com a key de outro provider não é possível porque o providerId do body precisa bater com o token (403). EXTERNAL_ID_CONFLICT e IDEMPOTENCY_CONFLICT só aparecem dentro do mesmo provider, e a mensagem de erro é fixa, sem ecoar dados de outro provider.", "evidence": "src/application/wagering/submit-wager-transaction.ts:112,121; src/infrastructure/persistence/repositories/wager-transaction.repository.ts:73-78; src/interfaces/http/wagering.controller.ts:29-32" },
-    { "category": "1", "text": "Eventos de rejeição carregam só providerId/externalTransactionId/walletId/kind/failureCode do próprio comando, não dados de outro provider; a referência (REFUND/ROLLBACK) é resolvida com findByExternalId(tx.providerId, ...) e markDependentsDue filtra por provider_id.", "evidence": "src/application/wagering/submit-wager-transaction.ts:149-167; src/application/wagering/wager-engine.ts:153; src/infrastructure/persistence/repositories/wager-transaction.repository.ts:91-96" },
-    { "category": "1", "text": "Reverifica A-01 e A-03: com AUTH_MODE=oidc todas as rotas de negócio exigem token (401 sem token, em 12 rotas testadas) e as de wallet exigem o scope wallet:admin (provider comum: 403 FORBIDDEN_SCOPE). O guard roda antes dos pipes: POST sem token e com corpo inválido ou de 70 KB-JSON responde 401/413 sem vazar validação (o 413 vem do parser, ver A-R2-04).", "evidence": "src/interfaces/http/wallets.controller.ts:33-36; src/interfaces/http/wagering.controller.ts:54-56; src/interfaces/http/auth.guard.ts:35-53" },
-    { "category": "2", "text": "Não se aplica e continua assim: não há frontend com papéis, flags ou storage; as decisões de permissão (scope, provider_id) são todas do servidor.", "evidence": "src/interfaces/http/auth.guard.ts; docs/apresentacao/index.html (estático)" },
-    { "category": "3", "text": "Tabela de IDOR sem divergência entre auth esperada e implementada nas 11 rotas; nenhuma rota de negócio sem guard; nenhum 404 x 403 que revele a existência de transação de outro provider (rota por id interno responde 404 igual; rota por id externo responde 403 igual para existente e inexistente).", "evidence": "src/interfaces/http/wagering.controller.ts:106-136; src/interfaces/http/wallets.controller.ts:33-130" },
-    { "category": "3", "text": "Um token que tem provider_id E wallet:admin age como admin em /wallets e como o provider dele nas rotas de aposta (leu a própria tx: 200), mas não ganha acesso a transações de outros providers; um token só admin não lê transação nenhuma (404).", "evidence": "src/interfaces/http/auth.guard.ts:70-93; teste dinâmico 'admin+provider_id'" },
-    { "category": "extra", "text": "Confusão de algoritmo bloqueada: alg none (jose UnsecuredJWT e montado à mão), HS256 assinado com a chave pública em PEM, ES256 contra kid RSA, kid desconhecido e chave trocada com o kid correto resultam todos em 401. A lista algorithms [RS256, ES256] é aplicada.", "evidence": "src/infrastructure/auth/oidc-token-verifier.ts:22-26" },
-    { "category": "extra", "text": "Claims validados com tipo estrito: provider_id número, array, string vazia, null, objeto, ausente, com espaço ou em outra caixa resulta em 403 PROVIDER_MISMATCH (nunca compara com coerção); scope como array ou claim scp não concede nada (403); 'wallet:admin2' e 'xwallet:admin' não concedem (comparação por token inteiro); audience em array que contém a esperada é aceita (correto); issuer e audience errados: 401; exp 1 s e 30 s no passado: 401 (clockTolerance zero); nbf futuro: 401.", "evidence": "src/infrastructure/auth/oidc-token-verifier.ts:27-29; src/interfaces/http/auth.guard.ts:49-52,84-86" },
-    { "category": "extra", "text": "Cabeçalho Authorization estrito: 'bearer' em minúsculas e espaço final aceitos (inofensivo), mas espaço duplo, dois tokens, 'Basic', sem esquema, só 'Bearer', tabulação e lista com vírgula dão 401. Com dois cabeçalhos Authorization em socket cru o Node usa o primeiro (válido+lixo: 200; lixo+válido: 401), sem confusão entre eles.", "evidence": "src/interfaces/http/auth.guard.ts:39-40" },
-    { "category": "extra", "text": "Fail-closed com IdP indisponível: JWKS inalcançável ou pendurado nunca deixa passar (sempre 401, ver A-R2-03 para o código de status). O motivo da falha nunca chega ao cliente: corpo fixo 'missing or invalid credentials' para todas as causas.", "evidence": "src/interfaces/http/auth.guard.ts:42-47" },
-    { "category": "extra", "text": "O token não vai para o log: com LOG_LEVEL=debug, 94 linhas de log (inclusive o erro 500 gerado) não contêm o JWT, nem a assinatura, nem a palavra 'authorization'. O logger HTTP tem autoLogging desligado e o filtro de exceções só loga nome e stack do erro.", "evidence": "src/app.module.ts:LoggerModule.forRoot autoLogging:false; src/interfaces/http/http-error.filter.ts:84-91" },
-    { "category": "extra", "text": "Reverifica A-05 (body): limite de 64 KB aplicado e devolvido como 413 no formato padrão, inclusive antes da autenticação; gzip bomb real (20 MB e 200 MB zerados, 19 KB e 194 KB comprimidos) retorna 413 em ms sem derrubar o processo; JSON com 30 mil níveis de aninhamento: 400 sem estourar a pilha. Content-Type text/plain, application/x-www-form-urlencoded e ausente: o corpo não é parseado e a validação responde 400. Rate limit continua ausente no app (aceito: ARCHITECTURE §16 delega à borda).", "evidence": "src/main.ts:12,22-34,74-75" },
-    { "category": "extra", "text": "Reverifica A-06: helmet ativo (CSP default-src 'self' e nosniff observados), X-Powered-By desligado no código, CSP removido só em /docs (startsWith('/docs'), e /docsx dá 404 sem CSP porque a rota não existe). CORS não habilitado: preflight OPTIONS retorna 404 sem Access-Control-Allow-Origin e GET com Origin não recebe ACAO.", "evidence": "src/main.ts:16-24,72-73" },
-    { "category": "extra", "text": "Reverifica A-04: reconciliação (agregação sobre todo o ledger com FOR SHARE) agora exige wallet:admin (anônimo 401, provider 403), reduzindo a amplificação a quem tem token admin.", "evidence": "src/interfaces/http/wallets.controller.ts:33-36,111-130; src/application/wallet/reconcile-wallet.ts:26-33" },
-    { "category": "extra", "text": "Reverifica A-08: SET LOCAL lock_timeout continua interpolado, mas o valor vem só do construtor (nunca de requisição) e é validado por /^\\d+(ms|s)$/ antes de qualquer uso; nenhum dado de requisição chega a SQL por concatenação no código novo (auth e config não tocam SQL).", "evidence": "src/infrastructure/persistence/mikro-unit-of-work.ts:16,24-26,36" },
-    { "category": "extra", "text": "Reverifica A-09: X-Correlation-Id só é aceito se casar /^[A-Za-z0-9._:-]{1,128}$/; o valor '<b>x y' enviado foi substituído por UUID gerado (201 e nunca refletido). providerId/externalTransactionId continuam limitados a 1-128 chars e todo o SQL é parametrizado.", "evidence": "src/interfaces/http/correlation-id.ts:3-7; src/application/wagering/wager-command.ts:22,34-35" },
-    { "category": "extra", "text": "Reverifica A-10 (aceito): mensagens de erro continuam em formato fechado {error:{code,message}}; erros inesperados viram 500 'internal error' sem stack no corpo.", "evidence": "src/interfaces/http/http-error.filter.ts:76-97" },
-    { "category": "extra", "text": "Infra: portas do compose em 127.0.0.1, senhas de dev por env com default só local, Grafana anônimo apenas Viewer no profile observability, imagem como usuário bun, CI com actions fixadas por SHA e permissions contents: read, jose/helmet com versões fixas.", "evidence": "docker-compose.yml:12,24,63,95; Dockerfile:12; .github/workflows/ci.yml:3-14; package.json:42-43" }
+    {
+      "category": "1",
+      "text": "Reverifica A-02 (parcial, ver A-R2-01 para o resíduo): o claim provider_id é checado em TODOS os três caminhos que agem em nome de um provider. Token do prov-b com providerId 'prov-a' no body: 403 PROVIDER_MISMATCH; GET por id externo de outro provider: 403 PROVIDER_MISMATCH; GET por id interno de tx de outro provider: 404 idêntico ao inexistente.",
+      "evidence": "src/interfaces/http/wagering.controller.ts:97,118,133; src/interfaces/http/auth.guard.ts:84-93"
+    },
+    {
+      "category": "1",
+      "text": "Idempotência e conflito de id externo são escopados por provider: o mesmo Idempotency-Key e o mesmo externalTransactionId usados pelo prov-b não colidem com os do prov-a (200 PROCESSED nas duas contas); replay com a key de outro provider não é possível porque o providerId do body precisa bater com o token (403). EXTERNAL_ID_CONFLICT e IDEMPOTENCY_CONFLICT só aparecem dentro do mesmo provider, e a mensagem de erro é fixa, sem ecoar dados de outro provider.",
+      "evidence": "src/application/wagering/submit-wager-transaction.ts:112,121; src/infrastructure/persistence/repositories/wager-transaction.repository.ts:73-78; src/interfaces/http/wagering.controller.ts:29-32"
+    },
+    {
+      "category": "1",
+      "text": "Eventos de rejeição carregam só providerId/externalTransactionId/walletId/kind/failureCode do próprio comando, não dados de outro provider; a referência (REFUND/ROLLBACK) é resolvida com findByExternalId(tx.providerId, ...) e markDependentsDue filtra por provider_id.",
+      "evidence": "src/application/wagering/submit-wager-transaction.ts:149-167; src/application/wagering/wager-engine.ts:153; src/infrastructure/persistence/repositories/wager-transaction.repository.ts:91-96"
+    },
+    {
+      "category": "1",
+      "text": "Reverifica A-01 e A-03: com AUTH_MODE=oidc todas as rotas de negócio exigem token (401 sem token, em 12 rotas testadas) e as de wallet exigem o scope wallet:admin (provider comum: 403 FORBIDDEN_SCOPE). O guard roda antes dos pipes: POST sem token e com corpo inválido ou de 70 KB-JSON responde 401/413 sem vazar validação (o 413 vem do parser, ver A-R2-04).",
+      "evidence": "src/interfaces/http/wallets.controller.ts:33-36; src/interfaces/http/wagering.controller.ts:54-56; src/interfaces/http/auth.guard.ts:35-53"
+    },
+    {
+      "category": "2",
+      "text": "Não se aplica e continua assim: não há frontend com papéis, flags ou storage; as decisões de permissão (scope, provider_id) são todas do servidor.",
+      "evidence": "src/interfaces/http/auth.guard.ts; docs/apresentacao/index.html (estático)"
+    },
+    {
+      "category": "3",
+      "text": "Tabela de IDOR sem divergência entre auth esperada e implementada nas 11 rotas; nenhuma rota de negócio sem guard; nenhum 404 x 403 que revele a existência de transação de outro provider (rota por id interno responde 404 igual; rota por id externo responde 403 igual para existente e inexistente).",
+      "evidence": "src/interfaces/http/wagering.controller.ts:106-136; src/interfaces/http/wallets.controller.ts:33-130"
+    },
+    {
+      "category": "3",
+      "text": "Um token que tem provider_id E wallet:admin age como admin em /wallets e como o provider dele nas rotas de aposta (leu a própria tx: 200), mas não ganha acesso a transações de outros providers; um token só admin não lê transação nenhuma (404).",
+      "evidence": "src/interfaces/http/auth.guard.ts:70-93; teste dinâmico 'admin+provider_id'"
+    },
+    {
+      "category": "extra",
+      "text": "Confusão de algoritmo bloqueada: alg none (jose UnsecuredJWT e montado à mão), HS256 assinado com a chave pública em PEM, ES256 contra kid RSA, kid desconhecido e chave trocada com o kid correto resultam todos em 401. A lista algorithms [RS256, ES256] é aplicada.",
+      "evidence": "src/infrastructure/auth/oidc-token-verifier.ts:22-26"
+    },
+    {
+      "category": "extra",
+      "text": "Claims validados com tipo estrito: provider_id número, array, string vazia, null, objeto, ausente, com espaço ou em outra caixa resulta em 403 PROVIDER_MISMATCH (nunca compara com coerção); scope como array ou claim scp não concede nada (403); 'wallet:admin2' e 'xwallet:admin' não concedem (comparação por token inteiro); audience em array que contém a esperada é aceita (correto); issuer e audience errados: 401; exp 1 s e 30 s no passado: 401 (clockTolerance zero); nbf futuro: 401.",
+      "evidence": "src/infrastructure/auth/oidc-token-verifier.ts:27-29; src/interfaces/http/auth.guard.ts:49-52,84-86"
+    },
+    {
+      "category": "extra",
+      "text": "Cabeçalho Authorization estrito: 'bearer' em minúsculas e espaço final aceitos (inofensivo), mas espaço duplo, dois tokens, 'Basic', sem esquema, só 'Bearer', tabulação e lista com vírgula dão 401. Com dois cabeçalhos Authorization em socket cru o Node usa o primeiro (válido+lixo: 200; lixo+válido: 401), sem confusão entre eles.",
+      "evidence": "src/interfaces/http/auth.guard.ts:39-40"
+    },
+    {
+      "category": "extra",
+      "text": "Fail-closed com IdP indisponível: JWKS inalcançável ou pendurado nunca deixa passar (sempre 401, ver A-R2-03 para o código de status). O motivo da falha nunca chega ao cliente: corpo fixo 'missing or invalid credentials' para todas as causas.",
+      "evidence": "src/interfaces/http/auth.guard.ts:42-47"
+    },
+    {
+      "category": "extra",
+      "text": "O token não vai para o log: com LOG_LEVEL=debug, 94 linhas de log (inclusive o erro 500 gerado) não contêm o JWT, nem a assinatura, nem a palavra 'authorization'. O logger HTTP tem autoLogging desligado e o filtro de exceções só loga nome e stack do erro.",
+      "evidence": "src/app.module.ts:LoggerModule.forRoot autoLogging:false; src/interfaces/http/http-error.filter.ts:84-91"
+    },
+    {
+      "category": "extra",
+      "text": "Reverifica A-05 (body): limite de 64 KB aplicado e devolvido como 413 no formato padrão, inclusive antes da autenticação; gzip bomb real (20 MB e 200 MB zerados, 19 KB e 194 KB comprimidos) retorna 413 em ms sem derrubar o processo; JSON com 30 mil níveis de aninhamento: 400 sem estourar a pilha. Content-Type text/plain, application/x-www-form-urlencoded e ausente: o corpo não é parseado e a validação responde 400. Rate limit continua ausente no app (aceito: ARCHITECTURE §16 delega à borda).",
+      "evidence": "src/main.ts:12,22-34,74-75"
+    },
+    {
+      "category": "extra",
+      "text": "Reverifica A-06: helmet ativo (CSP default-src 'self' e nosniff observados), X-Powered-By desligado no código, CSP removido só em /docs (startsWith('/docs'), e /docsx dá 404 sem CSP porque a rota não existe). CORS não habilitado: preflight OPTIONS retorna 404 sem Access-Control-Allow-Origin e GET com Origin não recebe ACAO.",
+      "evidence": "src/main.ts:16-24,72-73"
+    },
+    {
+      "category": "extra",
+      "text": "Reverifica A-04: reconciliação (agregação sobre todo o ledger com FOR SHARE) agora exige wallet:admin (anônimo 401, provider 403), reduzindo a amplificação a quem tem token admin.",
+      "evidence": "src/interfaces/http/wallets.controller.ts:33-36,111-130; src/application/wallet/reconcile-wallet.ts:26-33"
+    },
+    {
+      "category": "extra",
+      "text": "Reverifica A-08: SET LOCAL lock_timeout continua interpolado, mas o valor vem só do construtor (nunca de requisição) e é validado por /^\\d+(ms|s)$/ antes de qualquer uso; nenhum dado de requisição chega a SQL por concatenação no código novo (auth e config não tocam SQL).",
+      "evidence": "src/infrastructure/persistence/mikro-unit-of-work.ts:16,24-26,36"
+    },
+    {
+      "category": "extra",
+      "text": "Reverifica A-09: X-Correlation-Id só é aceito se casar /^[A-Za-z0-9._:-]{1,128}$/; o valor '<b>x y' enviado foi substituído por UUID gerado (201 e nunca refletido). providerId/externalTransactionId continuam limitados a 1-128 chars e todo o SQL é parametrizado.",
+      "evidence": "src/interfaces/http/correlation-id.ts:3-7; src/application/wagering/wager-command.ts:22,34-35"
+    },
+    {
+      "category": "extra",
+      "text": "Reverifica A-10 (aceito): mensagens de erro continuam em formato fechado {error:{code,message}}; erros inesperados viram 500 'internal error' sem stack no corpo.",
+      "evidence": "src/interfaces/http/http-error.filter.ts:76-97"
+    },
+    {
+      "category": "extra",
+      "text": "Infra: portas do compose em 127.0.0.1, senhas de dev por env com default só local, Grafana anônimo apenas Viewer no profile observability, imagem como usuário bun, CI com actions fixadas por SHA e permissions contents: read, jose/helmet com versões fixas.",
+      "evidence": "docker-compose.yml:12,24,63,95; Dockerfile:12; .github/workflows/ci.yml:3-14; package.json:42-43"
+    }
   ]
 }
