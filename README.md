@@ -545,9 +545,23 @@ Com a infra de teste no ar, `bun run test` roda tudo. Para encerrar: `bun run in
 
 ### CI
 
-O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda em `push` e `pull_request`, em `ubuntu-24.04`, com limite de 30 minutos e permissão só de leitura. O job `test` instala as dependências com `bun install --frozen-lockfile`, sobe a infra de teste, roda `typecheck`, `test:unit`, `test:integration` e `test:concurrency` com `TEST_DB_NAME=wagering_ci`, e derruba a infra no fim, mesmo se um passo falhar.
+O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda em `push` e `pull_request`, em `ubuntu-24.04`, com limite de 30 minutos e `permissions: contents: read` (sem escrita no repositório). As actions estão fixadas por SHA de commit, com a versão anotada: `actions/checkout` v4.4.0 e `oven-sh/setup-bun` v2.2.0, que instala o Bun `1.4.4`. O job `test` roda estes passos, nesta ordem:
 
-O badge no topo leva ao histórico de execuções do workflow.
+| Passo | Comando | O que valida |
+|---|---|---|
+| Install dependencies | `bun install --frozen-lockfile` | o `bun.lock` bate com o `package.json`; nada é resolvido de novo |
+| Start test infrastructure | `bun run infra:test:up` | PostgreSQL e MiniStack (SQS) sobem e ficam saudáveis (`--wait`) |
+| Typecheck | `bun run typecheck` | tipos do projeto (`tsc --noEmit`) |
+| Unit tests | `bun run test:unit` | testes unitários, com `TEST_DB_NAME=wagering_ci` |
+| Integration tests | `bun run test:integration` | testes de integração contra o banco e as filas, com `TEST_DB_NAME=wagering_ci` |
+| Concurrency tests | `bun run test:concurrency` | concorrência entre processos, com `TEST_DB_NAME=wagering_ci` |
+| Stop test infrastructure | `bun run infra:test:down` | derruba a infra e os volumes; roda com `if: always()`, mesmo se um passo anterior falhar |
+
+**Badge.** O badge no topo mostra o estado da branch `main`: `passing` ou `failing`. O clique abre o histórico de execuções do workflow.
+
+**Como ler uma falha.** Abra a aba **Actions** do repositório, depois o run que falhou, depois o job `test` e o passo marcado como falho. As anotações de erro aparecem no resumo do run.
+
+**Compatibilidade.** A pasta do clone não pode terminar em ponto (`.`): o `path.extname` do cwd vira `.` e o MikroORM passa a resolver pacotes a partir da pasta pai. O Windows também não aceita esse nome de pasta.
 
 Para reproduzir o job localmente, dentro de um container `oven/bun:1.4.4-alpine`:
 
@@ -824,8 +838,8 @@ Resumo de [ARCHITECTURE.md §18](ARCHITECTURE.md).
 .github/
   workflows/ci.yml           # typecheck e as três suítes
 docs/
-  apresentacao/              # apresentação HTML (index.html) e check.ts
-  security-audit/            # findings-a/b.json, relatório (PDF e HTML), round-1/, generate-report.ts
+  apresentacao/              # apresentação HTML (index.html)
+  security-audit/            # findings-a/b.json, relatório (PDF), round-1/, generate-report.ts
   load-test.md               # metodologia, rodadas e análise
   load-test/                 # resultados brutos (JSON) de cada rodada
 infra/
