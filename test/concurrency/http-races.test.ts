@@ -1,5 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { Client } from "pg";
 import { assertLedgerConsistent } from "../helpers/assert-ledger-consistent";
+import { TEST_DATABASE_URL } from "../helpers/env";
 import { closePools, migrateUp, ownerPool, resetDb } from "../helpers/db";
 import { buildWagerCommand, createWalletDirect } from "../helpers/factories";
 import { startTestApp } from "../helpers/http";
@@ -101,7 +103,7 @@ describe("C2: hot wallet, insufficient funds", () => {
 });
 
 describe("C3: parallel wallets", () => {
-  test("10 wallets x 20 BET 1.00 in parallel: each ends at initial - 20.00, faster than 1 wallet x 200 serial (no global lock)", async () => {
+  test("10 wallets x 20 BET 1.00 in parallel: each ends at initial - 20.00", async () => {
     // Serial: 1 wallet, 200 apostas, uma de cada vez.
     const solo = await createWalletDirect("1000.00");
     const serialStart = performance.now();
@@ -130,6 +132,41 @@ describe("C3: parallel wallets", () => {
       expect(await debitsOf(w.walletId)).toBe("20");
     }
     console.log(`C3 timing: serial 200 apostas = ${serialMs.toFixed(0)}ms, paralelo 10x20 = ${parallelMs.toFixed(0)}ms`);
-    expect(parallelMs).toBeLessThan(serialMs);
+  });
+
+  test("no global lock: a BET on wallet B completes while wallet A is locked by an open transaction", async () => {
+    const a = await createWalletDirect("100.00");
+    const b = await createWalletDirect("100.00");
+    const client = new Client({ connectionString: TEST_DATABASE_URL });
+    await client.connect();
+    try {
+      // Trava A com transação aberta; o lock só sai no ROLLBACK.
+      await client.query("BEGIN");
+      await client.query("SELECT id FROM wallets WHERE id = $1 FOR UPDATE", [a.walletId]);
+
+      const started = performance.now();
+      const resB = await postWager(baseUrl, buildWagerCommand({ walletId: b.walletId, playerId: b.playerId, money: brl("1.00") }));
+      const elapsedB = performance.now() - started;
+      expect(resB.status).toBe(200);
+      expect(elapsedB).toBeLessThan(3000);
+      expect(await balanceOf(b.walletId)).toBe("99.00");
+
+      // Prova do lock por wallet: BET em A fica pendente enquanto A está travada.
+      const pendingA = postWager(baseUrl, buildWagerCommand({ walletId: a.walletId, playerId: a.playerId, money: brl("1.00") }));
+      const outcome = await Promise.race([
+        pendingA.then(() => "completed"),
+        new Promise<string>((resolve) => setTimeout(() => resolve("pending"), 300)),
+      ]);
+      expect(outcome).toBe("pending");
+
+      // Libera o lock: a BET em A completa.
+      await client.query("ROLLBACK");
+      const resA = await pendingA;
+      expect(resA.status).toBe(200);
+      expect(await balanceOf(a.walletId)).toBe("99.00");
+    } finally {
+      await client.query("ROLLBACK").catch(() => undefined);
+      await client.end();
+    }
   });
 });
