@@ -13,13 +13,30 @@ import { setupOpenApi } from "./interfaces/http/openapi";
 const JSON_BODY_LIMIT = "64kb";
 
 /**
- * Cabeçalhos de segurança em todas as respostas. Em `/docs` o CSP sai, porque o Swagger UI usa script inline.
+ * Cabeçalhos de segurança em todas as respostas. Em `/docs` vale uma CSP restrita ao Swagger UI
+ * (em vez do padrão do helmet, que é mais largo do que o Swagger precisa).
  */
 const strictHeaders = helmet();
-const docsHeaders = helmet({ contentSecurityPolicy: false });
+const docsHeaders = helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:"],
+    },
+  },
+});
 
 function securityHeaders(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void): void {
   (req.url?.startsWith("/docs") ? docsHeaders : strictHeaders)(req, res, next);
+}
+
+/** Erro de descompactação do zlib (Content-Encoding inválido), vindo do body-parser. */
+function isZlibDataError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === "Z_DATA_ERROR" || code === "Z_BUF_ERROR";
 }
 
 /**
@@ -34,6 +51,11 @@ function payloadTooLarge(
 ): void {
   if ((err as { type?: string } | null)?.type === "entity.too.large") {
     res.status(413).json({ error: { code: "PAYLOAD_TOO_LARGE", message: "payload too large" } });
+    return;
+  }
+  // Gzip inválido: zlib falha ao descompactar. Resposta 400 sem log, porque é entrada do cliente.
+  if (isZlibDataError(err)) {
+    res.status(400).json({ error: { code: "INVALID_PAYLOAD", message: "invalid payload" } });
     return;
   }
   next(err);

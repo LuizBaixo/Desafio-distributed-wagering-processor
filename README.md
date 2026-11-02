@@ -53,7 +53,7 @@ Para parar: `docker compose down -v`.
 - Todas as portas publicadas pelo compose (`postgres`, `ministack`, `app`, `prometheus`, `jaeger`, `grafana`) fazem bind em `127.0.0.1`. Nenhuma fica acessível pela rede. Para acessar de outra máquina, use um túnel SSH; não troque o bind.
 - As senhas `POSTGRES_PASSWORD`, `WAGERING_OWNER_PASSWORD`, `WAGERING_APP_PASSWORD` e `GRAFANA_ADMIN_PASSWORD` têm defaults de desenvolvimento, listados em `.env.example`. São somente desenvolvimento local. Para trocá-las, defina no `.env`.
 - As chaves `test`/`test` do SQS valem só para o emulador MiniStack. Com AWS real, o consumer deve usar IAM role, nunca essas chaves.
-- Em produção, não use os defaults. A aplicação ainda não valida isso no startup: injete as senhas reais por um gerenciador de segredos.
+- Em produção (qualquer `NODE_ENV` que não seja `development` nem `test`), o startup recusa `DATABASE_URL` com senha padrão ou com menos de 12 caracteres. A checagem lê a senha já decodificada da URL. Ela não substitui um gerenciador de segredos: injete as senhas reais por ele.
 - O Grafana aceita acesso anônimo só como `Viewer`, e só com o profile `observability`.
 
 ## Observabilidade local
@@ -211,7 +211,7 @@ Claims usadas: `provider_id` (o provedor) e `scope` (lista separada por espaços
 
 `/health` e `/metrics` não têm autenticação: o serviço assume rede interna para eles. O consumidor SQS segue como canal interno confiável.
 
-Com `NODE_ENV=production` a configuração é validada na subida: `AUTH_MODE` precisa estar definido, `DATABASE_URL` não pode usar as senhas padrão (`postgres:postgres`, `:owner@`, `:app@`) e `AWS_ACCESS_KEY_ID` não pode ser `test`. `AUTH_MODE=disabled` em produção sobe, mas registra um aviso.
+Em produção (qualquer `NODE_ENV` fora de `development` e `test`) a configuração é validada na subida: `AUTH_MODE` precisa estar definido, `DATABASE_URL` não pode ter senha padrão nem com menos de 12 caracteres, `AWS_ACCESS_KEY_ID` não pode ser chave de desenvolvimento e a URL do JWKS precisa ser `https`. `AUTH_MODE=disabled` em produção sobe, mas registra um aviso.
 
 O `X-Correlation-Id` só é aceito no formato `^[A-Za-z0-9._:-]{1,128}$`; fora dele, o servidor gera um novo.
 

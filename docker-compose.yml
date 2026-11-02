@@ -51,6 +51,9 @@ services:
     build: .
     command: ["bun", "run", "migration:up"]
     environment:
+      # desenvolvimento local: sem isto, a imagem roda como production (ver Dockerfile)
+      NODE_ENV: development
+      AUTH_MODE: disabled
       # somente desenvolvimento local (default da senha)
       MIGRATION_DATABASE_URL: postgres://wagering_owner:${WAGERING_OWNER_PASSWORD:-owner}@postgres:5432/wagering
     depends_on:
@@ -63,6 +66,10 @@ services:
     build: .
     environment:
       PORT: "3000"
+      # desenvolvimento local: sem isto, a imagem roda como production (ver Dockerfile)
+      NODE_ENV: development
+      # desenvolvimento local: sem auth (produção exige AUTH_MODE explícito)
+      AUTH_MODE: disabled
       APP_ROLES: api,consumer,outbox,pending
       # somente desenvolvimento local (default da senha)
       DATABASE_URL: postgres://wagering_app:${WAGERING_APP_PASSWORD:-app}@postgres:5432/wagering

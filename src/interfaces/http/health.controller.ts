@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Res, type OnApplicationShutdown } from "@nestjs/common";
+import { Controller, Get, Inject, Logger, Res, type OnApplicationShutdown } from "@nestjs/common";
 import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { Pool } from "pg";
 import { APP_CONFIG, type AppConfig } from "../../config/config";
@@ -20,6 +20,7 @@ interface ResponseLike {
 @Controller("health")
 export class HealthController implements OnApplicationShutdown {
   private readonly pool: Pool;
+  private readonly logger = new Logger(HealthController.name);
 
   constructor(
     @Inject(APP_CONFIG) config: AppConfig,
@@ -61,7 +62,9 @@ export class HealthController implements OnApplicationShutdown {
     const db = await this.pingDb();
     const sqs = await this.pingSqs();
     if (db !== "ok" || sqs !== "ok") {
-      throw new TransientInfrastructureError(`not ready: db=${db} sqs=${sqs}`);
+      // Detalhe só no log: a resposta pública não diz qual dependência caiu.
+      this.logger.warn(`not ready: db=${db} sqs=${sqs}`);
+      throw new TransientInfrastructureError("service unavailable");
     }
     return { status: "ok" };
   }

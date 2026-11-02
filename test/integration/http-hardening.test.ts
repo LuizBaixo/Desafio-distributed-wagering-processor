@@ -45,6 +45,32 @@ describe("limite de body JSON", () => {
       expect(json.error.code).toBe("PAYLOAD_TOO_LARGE");
     });
   });
+
+  test("Content-Encoding gzip com bytes inválidos recebe 400 INVALID_PAYLOAD, não 500", async () => {
+    await withApp(BASE_PORT + 5, {}, async (app) => {
+      const res = await fetch(`${app.baseUrl}/wallets`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "content-encoding": "gzip" },
+        body: "garbage-not-gzip",
+      });
+      expect(res.status).toBe(400);
+      expect(res.headers.get("content-type")).toContain("application/json");
+      expect(await res.json()).toEqual({ error: { code: "INVALID_PAYLOAD", message: "invalid payload" } });
+    });
+  });
+});
+
+describe("CSP em /docs", () => {
+  test("/docs devolve Content-Security-Policy restrita ao Swagger UI, não vazia", async () => {
+    await withApp(BASE_PORT + 4, { DOCS_ENABLED: "true" }, async (app) => {
+      const res = await fetch(`${app.baseUrl}/docs`);
+      expect(res.status).toBe(200);
+      const csp = res.headers.get("content-security-policy");
+      expect(csp).toBeTruthy();
+      expect(csp).toContain("default-src 'self'");
+      expect(csp).toContain("img-src 'self' data:");
+    });
+  });
 });
 
 describe("flag DOCS_ENABLED", () => {

@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { NestFactory } from "@nestjs/core";
 import {
   Injectable,
+  Logger,
   Module,
   type BeforeApplicationShutdown,
   type DynamicModule,
@@ -79,8 +80,20 @@ describe("health e metrics", () => {
     expect(res.status).toBe(503);
     expect(res.headers.get("Retry-After")).toBe("1");
     const body = (await res.json()) as { error: { code: string; message: string } };
-    expect(body.error.code).toBe("INFRA_UNAVAILABLE");
-    expect(body.error.message).toContain("db=down");
+    expect(body).toEqual({ error: { code: "INFRA_UNAVAILABLE", message: "service unavailable" } });
+    expect(JSON.stringify(body)).not.toMatch(/db=|sqs=/);
+  });
+
+  test("readiness com falha registra o detalhe (db=down sqs=ok) em warn, no log", async () => {
+    const warn = spyOn(Logger.prototype, "warn");
+    try {
+      const res = await fetch(`${broken.baseUrl}/health/ready`);
+      expect(res.status).toBe(503);
+      const messages = warn.mock.calls.map((args) => String(args[0]));
+      expect(messages).toContain("not ready: db=down sqs=ok");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   test("GET /metrics no formato Prometheus contém wager_transactions_total", async () => {
