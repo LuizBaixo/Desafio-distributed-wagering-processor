@@ -17,7 +17,6 @@
     "dlq:list": "bun run scripts/dlq.ts list",
     "dlq:redrive": "bun run scripts/dlq.ts redrive",
     "bench:outbox": "bun run scripts/outbox-capacity.ts",
-    "check:apresentacao": "bun run docs/apresentacao/check.ts",
     "security:report": "bun run docs/security-audit/generate-report.ts"
   },
   "dependencies": {

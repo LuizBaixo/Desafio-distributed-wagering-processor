@@ -247,7 +247,6 @@ Essas portas podem colidir com um Postgres ou LocalStack que já esteja rodando 
 | `bun run infra:test:down` | Derruba a infra de teste e remove os volumes |
 | `bun run dlq:list` | Lista mensagens da DLQ de transações (ver [Operação](#operação)) |
 | `bun run dlq:redrive` | Move mensagens da DLQ de volta para a fila principal |
-| `bun run check:apresentacao` | Valida a apresentação (`docs/apresentacao/check.ts`) |
 | `bun run security:report` | Gera o relatório de segurança a partir dos `findings-*.json` (`docs/security-audit/generate-report.ts`) |
 
 ## API
